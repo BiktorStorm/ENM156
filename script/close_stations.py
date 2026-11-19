@@ -23,4 +23,5 @@ def get_closest_stations(p, limit=30):
 
     stations_with_dist.sort(key=lambda x: x[0])
 
-    return [name for _, name in stations_with_dist[:limit]]
+    # Return (station_name, distance_km) tuples
+    return [(name, dist) for dist, name in stations_with_dist[:limit]]
