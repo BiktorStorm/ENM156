@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from src.load_data import PROJECT_ROOT
+from src.preprocessing.load_data import PROJECT_ROOT
 
 INPUT_PATH = PROJECT_ROOT / "data" / "processed" / "hourly.parquet"
 OUTPUT_PATH = PROJECT_ROOT / "data" / "processed" / "hourly_filled.parquet"

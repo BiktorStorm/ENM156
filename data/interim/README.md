@@ -27,7 +27,7 @@ CSV is a plain text table. It opens in Excel or in Python with `pandas.read_csv(
 
 ## Good to know
 
-- **Zeros are still in the data.** A value of 0 means the meter stopped, not that the factory used no power. Factory A has 5 zero hours; B and C have about five weeks of zeros at the end of the year (B from Nov 27, C from Nov 22).
+- **Zeros are still in the data.** A value of 0 means the meter stopped, not that the factory used no power. Factory A has 5 zero hours; B and C have about five weeks of zeros at the end of the year (B from Nov 28, C from Nov 22).
 - **Factory C changes in mid-May.** Its usage is much lower before then (around 40–75 kWh per hour on weekdays, compared with 250–320 after).
 - **Clock changes.** Every day has 24 hours, even on the days in March and October when the clocks change.
 
@@ -36,5 +36,5 @@ CSV is a plain text table. It opens in Excel or in Python with `pandas.read_csv(
 Run from the project folder:
 
 ```
-.venv/bin/python -m src.load_data   # creates hourly.csv
+.venv/bin/python -m src.preprocessing.load_data   # creates hourly.csv
 ```

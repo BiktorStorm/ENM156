@@ -25,7 +25,7 @@ Parquet is a compact table format. Open it in Python with `pandas.read_parquet("
 1. **Dates fixed.** Factories A, B and D were labelled 2024 by mistake. All data is from 2022.
 2. **Zeros removed.** A value of 0 means the meter stopped, not that the factory used no power. Zeros became empty values.
 3. **Short gaps filled.** A few missing hours (at most 3 in a row, only factory A) were filled by drawing a straight line between the values on either side.
-4. **Long gaps estimated** (only in `hourly_filled`). B and C are missing about the last five weeks of the year (B from Nov 27, C from Nov 22).
+4. **Long gaps estimated** (only in `hourly_filled`). B and C are missing about the last five weeks of the year (B from Nov 28, C from Nov 22).
    - Until Dec 22 they are filled by copying the same weekday and hour from the weeks just before the gap.
    - From Dec 23 they are filled with a typical weekend day, because factories A and D show a Christmas shutdown then.
 
@@ -40,6 +40,6 @@ Parquet is a compact table format. Open it in Python with `pandas.read_parquet("
 Run from the project folder:
 
 ```
-.venv/bin/python -m src.clean    # creates hourly.parquet
-.venv/bin/python -m src.impute   # creates hourly_filled.parquet
+.venv/bin/python -m src.preprocessing.clean    # creates hourly.parquet
+.venv/bin/python -m src.preprocessing.impute   # creates hourly_filled.parquet
 ```

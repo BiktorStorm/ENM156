@@ -1,4 +1,4 @@
-from src.load_data import PROJECT_ROOT, load_all
+from src.preprocessing.load_data import PROJECT_ROOT, load_all
 
 OUTPUT_PATH = PROJECT_ROOT / "data" / "processed" / "hourly.parquet"
 MAX_GAP_HOURS = 6
