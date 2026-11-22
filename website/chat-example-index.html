@@ -1,0 +1,827 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Power Scheduler</title>
+
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css"
+          rel="stylesheet">
+
+    <style>
+        body {
+            background: #f4f6f9;
+        }
+
+        .scheduler {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 2px 10px rgba(0,0,0,.06);
+        }
+
+        .chart-scroll {
+            overflow-x: auto;
+        }
+
+        .chart {
+            min-width: 1100px;
+        }
+
+        /* Graph area */
+        .plot {
+            height: 380px;
+            position: relative;
+            background-color: #fff;
+            border-left: 2px solid #555;
+            border-bottom: 2px solid #555;
+
+            background-image:
+                repeating-linear-gradient(
+                    to right,
+                    transparent 0,
+                    transparent calc(8.33333% - 1px),
+                    #e5e7eb calc(8.33333% - 1px),
+                    #e5e7eb 8.33333%
+                ),
+                repeating-linear-gradient(
+                    to top,
+                    transparent 0,
+                    transparent calc(20% - 1px),
+                    #e5e7eb calc(20% - 1px),
+                    #e5e7eb 20%
+                );
+        }
+
+        /* Y-axis labels */
+        .y-labels {
+            position: absolute;
+            left: -65px;
+            top: 0;
+            height: 100%;
+            width: 55px;
+
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: flex-end;
+
+            color: #555;
+            font-size: 12px;
+            pointer-events: none;
+        }
+
+        .y-labels span {
+            transform: translateY(-50%);
+            white-space: nowrap;
+        }
+
+        .y-labels span:last-child {
+            transform: translateY(50%);
+        }
+
+        /* Y-axis title */
+        .y-axis-title {
+            position: absolute;
+            left: -65px;
+            top: -30px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        /* X-axis labels */
+        .x-labels {
+            display: flex;
+            justify-content: space-between;
+            padding-top: 10px;
+            color: #666;
+            font-size: 12px;
+        }
+
+        /* Schedule boxes */
+        .power-box {
+            position: absolute;
+            background: rgba(13, 110, 253, .8);
+            border: 2px solid #0d6efd;
+            border-radius: 5px;
+
+            cursor: grab;
+            box-sizing: border-box;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            color: white;
+            font-weight: 600;
+            font-size: 12px;
+
+            min-width: 2px;
+            overflow: hidden;
+            touch-action: none;
+            user-select: none;
+        }
+
+        .power-box:hover {
+            background: rgba(13, 110, 253, .95);
+        }
+
+        .power-box.dragging {
+            cursor: grabbing;
+            opacity: .8;
+            z-index: 100;
+        }
+
+        /* Delete button inside boxes */
+        .delete-icon {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+
+            border: none;
+            border-radius: 3px;
+
+            background: #dc3545;
+            color: white;
+
+            font-size: 13px;
+            line-height: 16px;
+
+            width: 19px;
+            height: 19px;
+
+            cursor: pointer;
+            padding: 0;
+            z-index: 5;
+        }
+
+        .delete-icon:hover {
+            background: #a71d2a;
+        }
+
+        /* Floating UI tooltip */
+        .tooltip-box {
+            position: fixed;
+            display: none;
+
+            background: #222;
+            color: white;
+
+            padding: 8px 12px;
+            border-radius: 5px;
+
+            font-size: 13px;
+            z-index: 2000;
+            pointer-events: none;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container-fluid py-4 px-4">
+
+    <div class="mb-4">
+        <h2>Power Scheduler</h2>
+        <p class="text-muted">
+            Schedule your power consumption throughout the day.
+        </p>
+    </div>
+
+    <div class="scheduler">
+
+        <h5 class="mb-4">Daily power schedule</h5>
+
+        <div class="chart-scroll">
+            <div class="chart">
+
+                <div class="position-relative ms-5">
+
+                    <!-- Y-axis title -->
+                    <div class="y-axis-title">
+                        Power (kW)
+                    </div>
+
+                    <!-- Y-axis labels -->
+                    <div class="y-labels" id="yLabels"></div>
+
+                    <!-- Graph -->
+                    <div class="plot" id="plot"></div>
+
+                    <!-- X-axis labels -->
+                    <div class="x-labels" id="xLabels"></div>
+
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-4 d-flex justify-content-between align-items-center">
+
+            <div class="text-muted small">
+                Drag boxes horizontally to change their start time.
+                Click a box to edit it.
+            </div>
+
+            <button class="btn btn-primary"
+                    onclick="openCreateModal()">
+                + Create box
+            </button>
+
+        </div>
+
+    </div>
+</div>
+
+
+<!-- Floating UI tooltip -->
+<div class="tooltip-box" id="tooltip"></div>
+
+
+<!-- Create/Edit Modal -->
+<div class="modal fade" id="boxModal" tabindex="-1">
+
+    <div class="modal-dialog">
+        <div class="modal-content">
+
+            <div class="modal-header">
+
+                <h5 class="modal-title" id="modalTitle">
+                    Create schedule
+                </h5>
+
+                <button type="button"
+                        class="btn-close"
+                        data-bs-dismiss="modal">
+                </button>
+
+            </div>
+
+            <div class="modal-body">
+
+                <div class="mb-3">
+                    <label class="form-label">Start time</label>
+
+                    <input type="time"
+                           class="form-control"
+                           id="startTime"
+                           value="08:00"
+                           step="900">
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Power (kW)</label>
+
+                    <input type="number"
+                           class="form-control"
+                           id="power"
+                           min="1"
+                           max="100"
+                           value="50">
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Duration (hours)</label>
+
+                    <input type="number"
+                           class="form-control"
+                           id="duration"
+                           min="0.25"
+                           max="24"
+                           step="0.25"
+                           value="1">
+                </div>
+
+                <div class="text-danger small" id="formError"></div>
+
+            </div>
+
+            <div class="modal-footer justify-content-between">
+
+                <button class="btn btn-danger"
+                        id="deleteButton"
+                        onclick="deleteBox()">
+                    Delete
+                </button>
+
+                <div>
+
+                    <button class="btn btn-secondary"
+                            data-bs-dismiss="modal">
+                        Cancel
+                    </button>
+
+                    <button class="btn btn-primary"
+                            onclick="saveBox()">
+                        Save
+                    </button>
+
+                </div>
+
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<!-- Bootstrap JavaScript -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+
+<!-- Floating UI -->
+<script src="https://cdn.jsdelivr.net/npm/@floating-ui/dom@1.7.4/dist/floating-ui.dom.umd.min.js"></script>
+
+
+<script>
+
+    const plot = document.getElementById("plot");
+    const tooltip = document.getElementById("tooltip");
+
+    const modal = new bootstrap.Modal(
+        document.getElementById("boxModal")
+    );
+
+    const MAX_POWER = 100;
+    const DAY_MINUTES = 24 * 60;
+    const STEP = 15;
+
+    let boxes = [];
+    let nextId = 1;
+
+    let editingId = null;
+    let draggingId = null;
+
+    let dragStartX = 0;
+    let dragStartTime = 0;
+
+    let moved = false;
+
+
+    // Generate X-axis labels
+    const xLabels = document.getElementById("xLabels");
+
+    for (let hour = 0; hour <= 24; hour += 2) {
+
+        const label = document.createElement("span");
+
+        label.textContent =
+            String(hour).padStart(2, "0") + ":00";
+
+        xLabels.appendChild(label);
+    }
+
+
+    // Convert minutes into HH:MM
+    function formatTime(minutes) {
+
+        const hours = Math.floor(minutes / 60);
+        const mins = minutes % 60;
+
+        return String(hours).padStart(2, "0") + ":" +
+               String(mins).padStart(2, "0");
+    }
+
+
+    // Render graph
+    function render() {
+
+        plot.innerHTML = "";
+
+        // Sort boxes by start time.
+        // Use ID to make boxes with equal start times deterministic.
+        const sorted = [...boxes].sort(
+            (a, b) => a.start - b.start || a.id - b.id
+        );
+
+        // Calculate vertical stacking positions
+        const placed = [];
+
+        sorted.forEach(box => {
+
+            let base = 0;
+
+            placed.forEach(other => {
+
+                const boxEnd = box.start + box.duration;
+                const otherEnd = other.start + other.duration;
+
+                // Check if the boxes overlap in time
+                const overlaps =
+                    other.start < boxEnd &&
+                    otherEnd > box.start;
+
+                if (overlaps) {
+                    base = Math.max(base, other.stackTop);
+                }
+
+            });
+
+            box.stackBase = base;
+            box.stackTop = base + box.power;
+
+            placed.push(box);
+
+        });
+
+
+        // Calculate maximum stacked power
+        const maxStack = Math.max(
+            100,
+            ...sorted.map(box => box.stackTop)
+        );
+
+
+        // Update Y-axis labels
+        const yLabels = document.getElementById("yLabels");
+
+        yLabels.innerHTML = "";
+
+        for (let i = 5; i >= 0; i--) {
+
+            const label = document.createElement("span");
+
+            label.textContent =
+                Math.round(maxStack * i / 5) + " kW";
+
+            yLabels.appendChild(label);
+
+        }
+
+
+        // Draw all boxes
+        boxes.forEach(box => {
+
+            const element = document.createElement("div");
+
+            element.className = "power-box";
+            element.dataset.id = box.id;
+
+            // Horizontal position
+            element.style.left =
+                (box.start / DAY_MINUTES * 100) + "%";
+
+            // Width represents duration
+            element.style.width =
+                (box.duration / DAY_MINUTES * 100) + "%";
+
+            // Height represents power
+            element.style.height =
+                (box.power / maxStack * 100) + "%";
+
+            // Vertical position represents stacking level
+            element.style.bottom =
+                (box.stackBase / maxStack * 100) + "%";
+
+            element.style.zIndex = 1;
+
+            element.textContent = box.power + " kW";
+
+
+            // Delete button
+            const deleteButton = document.createElement("button");
+
+            deleteButton.className = "delete-icon";
+            deleteButton.innerHTML = "&times;";
+            deleteButton.title = "Delete schedule";
+
+            deleteButton.addEventListener("pointerdown", e => {
+                e.stopPropagation();
+            });
+
+            deleteButton.addEventListener("click", e => {
+
+                e.stopPropagation();
+
+                boxes = boxes.filter(b => b.id !== box.id);
+
+                tooltip.style.display = "none";
+
+                render();
+
+            });
+
+            element.appendChild(deleteButton);
+
+
+            // Drag functionality
+            element.addEventListener("pointerdown", e => {
+
+                if (e.target === deleteButton) return;
+
+                startDrag(e, box);
+
+            });
+
+            element.addEventListener("pointermove", e => {
+
+                if (draggingId === box.id) {
+                    moveDrag(e, box);
+                }
+
+            });
+
+            element.addEventListener("pointerup", e => {
+
+                if (draggingId === box.id) {
+                    endDrag(e, box);
+                }
+
+            });
+
+            element.addEventListener("pointercancel", e => {
+
+                if (draggingId === box.id) {
+                    endDrag(e, box);
+                }
+
+            });
+
+
+            // Click to edit
+            element.addEventListener("click", () => {
+
+                if (!moved) {
+                    openEditModal(box);
+                }
+
+            });
+
+
+            // Tooltip
+            element.addEventListener("mouseenter", () => {
+                showTooltip(element, box);
+            });
+
+            element.addEventListener("mouseleave", () => {
+                tooltip.style.display = "none";
+            });
+
+
+            plot.appendChild(element);
+
+        });
+
+    }
+
+
+    // Create a new box
+    function openCreateModal() {
+
+        editingId = null;
+
+        document.getElementById("modalTitle").textContent =
+            "Create schedule";
+
+        document.getElementById("startTime").value = "08:00";
+        document.getElementById("power").value = 50;
+        document.getElementById("duration").value = 1;
+
+        document.getElementById("deleteButton").style.display =
+            "none";
+
+        document.getElementById("formError").textContent = "";
+
+        modal.show();
+
+    }
+
+
+    // Edit an existing box
+    function openEditModal(box) {
+
+        editingId = box.id;
+
+        document.getElementById("modalTitle").textContent =
+            "Edit schedule";
+
+        document.getElementById("startTime").value =
+            formatTime(box.start);
+
+        document.getElementById("power").value = box.power;
+
+        document.getElementById("duration").value =
+            box.duration / 60;
+
+        document.getElementById("deleteButton").style.display =
+            "inline-block";
+
+        document.getElementById("formError").textContent = "";
+
+        modal.show();
+
+    }
+
+
+    // Save a new or edited box
+    function saveBox() {
+
+        const time = document.getElementById("startTime").value;
+
+        const power = Number(
+            document.getElementById("power").value
+        );
+
+        const duration = Number(
+            document.getElementById("duration").value
+        ) * 60;
+
+        const error = document.getElementById("formError");
+
+        if (!time) {
+            error.textContent = "Please enter a start time.";
+            return;
+        }
+
+        const [hours, minutes] = time.split(":").map(Number);
+
+        const start = hours * 60 + minutes;
+
+
+        if (
+            !Number.isFinite(power) ||
+            !Number.isFinite(duration) ||
+            power <= 0 ||
+            power > MAX_POWER ||
+            duration < STEP ||
+            duration > DAY_MINUTES ||
+            start % STEP !== 0 ||
+            start + duration > DAY_MINUTES
+        ) {
+
+            error.textContent =
+                "Enter a valid time in 15-minute increments, " +
+                "power between 1 and 100 kW, and a valid duration.";
+
+            return;
+        }
+
+
+        if (editingId !== null) {
+
+            const box = boxes.find(b => b.id === editingId);
+
+            box.start = start;
+            box.power = power;
+            box.duration = duration;
+
+        } else {
+
+            boxes.push({
+                id: nextId++,
+                start: start,
+                power: power,
+                duration: duration
+            });
+
+        }
+
+        modal.hide();
+
+        render();
+
+    }
+
+
+    // Delete selected box from edit window
+    function deleteBox() {
+
+        boxes = boxes.filter(box => box.id !== editingId);
+
+        modal.hide();
+
+        render();
+
+    }
+
+
+    // Start dragging
+    function startDrag(e, box) {
+
+        if (e.button !== 0) return;
+
+        e.preventDefault();
+
+        draggingId = box.id;
+
+        dragStartX = e.clientX;
+        dragStartTime = box.start;
+
+        moved = false;
+
+        e.currentTarget.setPointerCapture(e.pointerId);
+
+        e.currentTarget.classList.add("dragging");
+
+        tooltip.style.display = "none";
+
+    }
+
+
+    // Move box horizontally
+    function moveDrag(e, box) {
+
+        const difference = e.clientX - dragStartX;
+
+        if (Math.abs(difference) > 3) {
+            moved = true;
+        }
+
+        if (!moved) return;
+
+        const chartWidth = plot.getBoundingClientRect().width;
+
+        const minutesMoved =
+            difference / chartWidth * DAY_MINUTES;
+
+        const newTime = dragStartTime + minutesMoved;
+
+        box.start = Math.max(
+            0,
+            Math.min(
+                DAY_MINUTES - box.duration,
+                Math.round(newTime / STEP) * STEP
+            )
+        );
+
+        // Update box position while dragging
+        const element = e.currentTarget;
+
+        element.style.left =
+            (box.start / DAY_MINUTES * 100) + "%";
+
+    }
+
+
+    // Finish dragging
+    function endDrag(e, box) {
+
+        const element = e.currentTarget;
+
+        element.classList.remove("dragging");
+
+        draggingId = null;
+
+        // Recalculate stacking and Y-axis
+        render();
+
+        // Prevent the click event from opening edit modal
+        if (moved) {
+
+            setTimeout(() => {
+                moved = false;
+            }, 0);
+
+        }
+
+    }
+
+
+    // Floating UI tooltip
+    function showTooltip(element, box) {
+
+        if (draggingId !== null) return;
+
+        tooltip.innerHTML =
+            "<strong>" + box.power + " kW</strong><br>" +
+            "Start: " + formatTime(box.start) + "<br>" +
+            "End: " + formatTime(box.start + box.duration);
+
+        tooltip.style.display = "block";
+
+        FloatingUIDOM.computePosition(element, tooltip, {
+
+            placement: "top",
+            strategy: "fixed",
+
+            middleware: [
+                FloatingUIDOM.offset(8),
+                FloatingUIDOM.flip(),
+                FloatingUIDOM.shift()
+            ]
+
+        }).then(({ x, y }) => {
+
+            tooltip.style.left = x + "px";
+            tooltip.style.top = y + "px";
+
+        });
+
+    }
+
+
+    // Initial example schedules
+    boxes.push(
+        { id: nextId++, start: 8 * 60, power: 40, duration: 120 },
+        { id: nextId++, start: 12 * 60, power: 70, duration: 90 },
+        { id: nextId++, start: 17 * 60, power: 55, duration: 180 }
+    );
+
+
+    // Initial rendering
+    render();
+
+</script>
+
+</body>
+</html>
