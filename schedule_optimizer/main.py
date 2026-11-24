@@ -16,8 +16,10 @@ schema1 = privateSchedule.schedule()
 
 schema1.addProcess(svarv1_körning, 3)
 
+
+
 schemaOmråde = areaSchedule.schedule()
 
-print(svarv1)
+print(schema1.getTotalPowerAtIndex(2))
 
 
