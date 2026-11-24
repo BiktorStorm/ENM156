@@ -1,5 +1,7 @@
 class machine:
-    def __init__(self, kilowattage: int, name: str) -> None:
+    def __init__(self, kilowattage: float, name: str) -> None:
+        
+        self.kilowattage: float = kilowattage
 
         self.kilowattage: int = 0
         self.name: str = name
@@ -11,17 +13,3 @@ class machine:
 
     def getKW(self):
         return self.kilowattage
-
-    def setKW(self, kilowattage: int):
-        if kilowattage <= 0:
-            raise ValueError("Kilowattage must be positive")
-        self.kilowattage = kilowattage
-
-    def getName(self):
-        return self.name
-
-    def setName(self, name: str):
-        self.name = name
-
-    def toDict(self) -> dict:
-        return {"name": self.name, "kW": self.kilowattage}

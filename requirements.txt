@@ -1,6 +1,7 @@
 pandas
 matplotlib
 numpy
+scipy>=1.9
 jupyter
 pyarrow
 lightgbm

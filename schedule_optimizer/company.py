@@ -5,6 +5,7 @@ class company:
 
         self.companyName: str = companyName
         self.machineList: list = []
+        self.maxOptimFlex: int = 8 # n number of quarters a block can move in time
 
     def __str__ (self):
         return self.companyName
