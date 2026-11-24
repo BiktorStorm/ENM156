@@ -19,7 +19,9 @@ schema1.addProcess(svarv1_körning, 3)
 
 
 schemaOmråde = areaSchedule.schedule()
+schemaOmråde.importJsonFiles()
 
-print(schema1.getTotalPowerAtIndex(2))
+print(len(schemaOmråde.getDay("2023-01-01", "2w")))
+
 
 
