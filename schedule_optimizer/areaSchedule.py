@@ -15,6 +15,7 @@ class schedule:
         self.timeLineDay: list = []
         self.timeLineTotal: dict = {}
         self.timeLineForecasts: dict[str, dict[pd.Timestamp, list[float]]] = {}
+        self.isLoaded: bool = False
 
         if dataDirectory is None:
             dataDirectory = Path(__file__).resolve().parent.parent / "testDataForOptim"
@@ -71,6 +72,8 @@ class schedule:
                     self.timeLineTotal[dayKey] = horizonTimeline[dayKey]
                     break
 
+        self.isLoaded = True
+
     def importJsonFiles(self):
         if not self.dataDirectory.is_dir():
             raise FileNotFoundError(
@@ -80,11 +83,30 @@ class schedule:
         for filePath in sorted(self.dataDirectory.glob("*.json")):
             self.importJsonFile(filePath)
 
+    def requireLoaded(self):
+        if not self.isLoaded:
+            raise RuntimeError("No area data loaded, call importJsonFiles() first")
+
+    def getHorizons(self) -> list[str]:
+        self.requireLoaded()
+        return list(self.timeLineForecasts.keys())
+
+    def getDates(self, horizon: str | None = None) -> list[str]:
+        self.requireLoaded()
+        if horizon is None:
+            days = self.timeLineTotal.keys()
+        else:
+            if horizon not in self.timeLineForecasts:
+                raise KeyError(f"No forecast horizon found: {horizon}")
+            days = self.timeLineForecasts[horizon].keys()
+        return [day.strftime("%Y-%m-%d") for day in sorted(days)]
+
     def getDay(
         self,
         date: datetime.datetime | str | pd.Timestamp,
         horizon: str | None = None,
     ):
+        self.requireLoaded()
         dateKey = pd.to_datetime(date).normalize()
 
         if horizon is not None:
@@ -97,8 +119,3 @@ class schedule:
         if dateKey not in self.timeLineTotal:
             raise KeyError(f"No power timeline found for {date}")
         return self.timeLineTotal[dateKey]
-
-
-
-
-
