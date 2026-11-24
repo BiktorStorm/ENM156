@@ -1,0 +1,225 @@
+{
+  "notes": "The initial evaluation. Trained on the original 1 year of data, data/processed/hourly_filled.parquet",
+  "model": "lgbm",
+  "created": "2026-11-23T15:21:32",
+  "48h": [
+    {
+      "factory": "A",
+      "model": "lgbm",
+      "MAE": 35.889,
+      "RMSE": 61.333,
+      "nMAE": 0.226,
+      "n_hours": 10224,
+      "rel_MAE": 1.107
+    },
+    {
+      "factory": "A",
+      "model": "naive_day",
+      "MAE": 48.978,
+      "RMSE": 76.13,
+      "nMAE": 0.309,
+      "n_hours": 10224,
+      "rel_MAE": 1.511
+    },
+    {
+      "factory": "A",
+      "model": "naive_week",
+      "MAE": 32.407,
+      "RMSE": 59.56,
+      "nMAE": 0.204,
+      "n_hours": 10224,
+      "rel_MAE": 1.0
+    },
+    {
+      "factory": "B",
+      "model": "lgbm",
+      "MAE": 15.45,
+      "RMSE": 22.347,
+      "nMAE": 0.103,
+      "n_hours": 8644,
+      "rel_MAE": 0.942
+    },
+    {
+      "factory": "B",
+      "model": "naive_day",
+      "MAE": 27.32,
+      "RMSE": 43.952,
+      "nMAE": 0.183,
+      "n_hours": 8644,
+      "rel_MAE": 1.666
+    },
+    {
+      "factory": "B",
+      "model": "naive_week",
+      "MAE": 16.4,
+      "RMSE": 25.22,
+      "nMAE": 0.11,
+      "n_hours": 8644,
+      "rel_MAE": 1.0
+    },
+    {
+      "factory": "C",
+      "model": "lgbm",
+      "MAE": 47.878,
+      "RMSE": 83.767,
+      "nMAE": 0.251,
+      "n_hours": 8328,
+      "rel_MAE": 1.218
+    },
+    {
+      "factory": "C",
+      "model": "naive_day",
+      "MAE": 105.293,
+      "RMSE": 187.178,
+      "nMAE": 0.552,
+      "n_hours": 8328,
+      "rel_MAE": 2.679
+    },
+    {
+      "factory": "C",
+      "model": "naive_week",
+      "MAE": 39.302,
+      "RMSE": 80.536,
+      "nMAE": 0.206,
+      "n_hours": 8328,
+      "rel_MAE": 1.0
+    },
+    {
+      "factory": "D",
+      "model": "lgbm",
+      "MAE": 9.121,
+      "RMSE": 14.534,
+      "nMAE": 0.089,
+      "n_hours": 10224,
+      "rel_MAE": 0.928
+    },
+    {
+      "factory": "D",
+      "model": "naive_day",
+      "MAE": 14.987,
+      "RMSE": 23.965,
+      "nMAE": 0.146,
+      "n_hours": 10224,
+      "rel_MAE": 1.525
+    },
+    {
+      "factory": "D",
+      "model": "naive_week",
+      "MAE": 9.825,
+      "RMSE": 16.105,
+      "nMAE": 0.096,
+      "n_hours": 10224,
+      "rel_MAE": 1.0
+    }
+  ],
+  "2w": [
+    {
+      "factory": "A",
+      "model": "lgbm",
+      "MAE": 48.889,
+      "RMSE": 76.666,
+      "nMAE": 0.303,
+      "n_hours": 9744,
+      "rel_MAE": 1.362
+    },
+    {
+      "factory": "A",
+      "model": "naive_day",
+      "MAE": 58.237,
+      "RMSE": 89.787,
+      "nMAE": 0.36,
+      "n_hours": 9744,
+      "rel_MAE": 1.623
+    },
+    {
+      "factory": "A",
+      "model": "naive_week",
+      "MAE": 35.888,
+      "RMSE": 66.289,
+      "nMAE": 0.222,
+      "n_hours": 9744,
+      "rel_MAE": 1.0
+    },
+    {
+      "factory": "B",
+      "model": "lgbm",
+      "MAE": 17.583,
+      "RMSE": 24.478,
+      "nMAE": 0.118,
+      "n_hours": 8500,
+      "rel_MAE": 1.029
+    },
+    {
+      "factory": "B",
+      "model": "naive_day",
+      "MAE": 32.894,
+      "RMSE": 49.052,
+      "nMAE": 0.22,
+      "n_hours": 8500,
+      "rel_MAE": 1.926
+    },
+    {
+      "factory": "B",
+      "model": "naive_week",
+      "MAE": 17.084,
+      "RMSE": 25.701,
+      "nMAE": 0.114,
+      "n_hours": 8500,
+      "rel_MAE": 1.0
+    },
+    {
+      "factory": "C",
+      "model": "lgbm",
+      "MAE": 59.186,
+      "RMSE": 98.093,
+      "nMAE": 0.31,
+      "n_hours": 8184,
+      "rel_MAE": 1.281
+    },
+    {
+      "factory": "C",
+      "model": "naive_day",
+      "MAE": 101.617,
+      "RMSE": 175.617,
+      "nMAE": 0.532,
+      "n_hours": 8184,
+      "rel_MAE": 2.2
+    },
+    {
+      "factory": "C",
+      "model": "naive_week",
+      "MAE": 46.185,
+      "RMSE": 89.936,
+      "nMAE": 0.242,
+      "n_hours": 8184,
+      "rel_MAE": 1.0
+    },
+    {
+      "factory": "D",
+      "model": "lgbm",
+      "MAE": 10.228,
+      "RMSE": 15.708,
+      "nMAE": 0.099,
+      "n_hours": 9744,
+      "rel_MAE": 1.006
+    },
+    {
+      "factory": "D",
+      "model": "naive_day",
+      "MAE": 12.904,
+      "RMSE": 20.934,
+      "nMAE": 0.125,
+      "n_hours": 9744,
+      "rel_MAE": 1.269
+    },
+    {
+      "factory": "D",
+      "model": "naive_week",
+      "MAE": 10.164,
+      "RMSE": 16.377,
+      "nMAE": 0.099,
+      "n_hours": 9744,
+      "rel_MAE": 1.0
+    }
+  ]
+}
