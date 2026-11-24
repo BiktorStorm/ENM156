@@ -15,6 +15,6 @@ class schedule:
         sumKW = 0
         for process in self.processTimeline:
             if process["startIndex"] <= index \
-            and index <= (process["startIndex"] + process["process"].getDuration()):
+            and index < (process["startIndex"] + process["process"].getDurationQuarter()):
                 sumKW += process["process"].machine.kilowattage
         return sumKW

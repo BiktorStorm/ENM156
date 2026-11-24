@@ -7,3 +7,6 @@ class machine:
 
     def __str__ (self):
         return self.name    
+
+    def getKW(self):
+        return 

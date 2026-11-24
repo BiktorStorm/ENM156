@@ -13,3 +13,6 @@ class process:
 
     def setDuration (self, time: int):
         self.duration = time
+
+    def getKWh(self): 
+        return (self.duration / 60) * self.machine.getKW()
