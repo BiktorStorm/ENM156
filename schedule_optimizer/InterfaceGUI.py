@@ -7,6 +7,7 @@ import process
 import privateSchedule
 import areaSchedule
 import combinedSchedule
+import optimize
 import timeUtils
 
 # This API is intended to be an asbtraction between the backend and the GUI #
@@ -23,6 +24,8 @@ class GUIinstance:
         self.companyInstance = company.company(companyName)
         self.privateScheduleInstance = privateSchedule.schedule()
         self.areaScheduleInstance = areaSchedule.schedule(dataDirectory)
+        # The schedule checks processes against the company's working hours
+        self.privateScheduleInstance.workingHours = self.companyInstance.workingHours
         self.combinedScheduleInstance = combinedSchedule.schedule(
             self.areaScheduleInstance, self.privateScheduleInstance
         )
@@ -34,6 +37,22 @@ class GUIinstance:
 
     def setCompanyName(self, companyName: str):
         self.companyInstance.setName(companyName)
+
+    # ------------------------- Working hours ------------------------- #
+
+    def getWorkingHours(self) -> dict:
+        return self.companyInstance.workingHours.toDict()
+
+    def setWorkingHours(self, start: str, end: str,
+                        lunchStart: str | None = None,
+                        lunchEnd: str | None = None) -> list[int]:
+        """Times as 'HH:MM' ('24:00' for midnight), lunch may be None.
+        Returns ids of processes that now run outside the working hours."""
+        def index(time):
+            return None if time is None else timeUtils.timeToIndex(time)
+        self.companyInstance.workingHours.set(index(start), index(end),
+                                              index(lunchStart), index(lunchEnd))
+        return [b["id"] for b in self.getProcessBlocks() if b["outsideHours"]]
 
     # ---------------------------- Machines --------------------------- #
 
@@ -65,12 +84,16 @@ class GUIinstance:
         return self.privateScheduleInstance.addProcess(newProcess, startIndex)
 
     def removeProcess(self, processId: int):
-        # TODO: privateSchedule.removeProcess
-        return self.privateScheduleInstance.removeProcess(processId)
+        return self.combinedScheduleInstance.removeProcess(processId)
 
-    def moveProcess(self, processId: int, newStartIndex: int):
-        # TODO: privateSchedule.moveProcess
-        return self.privateScheduleInstance.moveProcess(processId, newStartIndex)
+    def moveProcess(self, processId: int, newStartIndex: int) -> dict:
+        return self.combinedScheduleInstance.moveProcess(processId, newStartIndex)
+
+    def setProcessDependencies(self, processId: int, dependencyIds: list[int]) -> list[int]:
+        """processId may only start once every process in dependencyIds has
+        finished. An empty list makes it independent. Returns the ids of
+        processes that were pushed later to respect the new order."""
+        return self.combinedScheduleInstance.setDependencies(processId, dependencyIds)
 
     def setProcessDuration(self, processId: int, durationQuarters: int):
         # TODO: privateSchedule.setProcessDuration
@@ -84,9 +107,8 @@ class GUIinstance:
         # TODO: privateSchedule.clear
         return self.privateScheduleInstance.clear()
 
-    def setMaxCapacity(self, maxKW: int | None):
-        # TODO: privateSchedule.setMaxCap
-        return self.privateScheduleInstance.setMaxCap(maxKW)
+    def setMaxCapacity(self, maxKW: float | None):
+        self.privateScheduleInstance.maxCap = maxKW
 
     def getMaxCapacity(self) -> int | None:
         return self.privateScheduleInstance.maxCap
@@ -96,6 +118,9 @@ class GUIinstance:
 
     def getPrivateLoadProfile(self) -> list[float]:
         return self.combinedScheduleInstance.getPrivateProfile()
+
+    def getProcessBlocks(self) -> list[dict]:
+        return self.combinedScheduleInstance.getProcessBlocks()
 
     # ------------------------- Area forecast ------------------------- #
 
@@ -132,9 +157,23 @@ class GUIinstance:
     # --------------------------- Optimiser --------------------------- #
 
     def optimizeSchedule(self, date: str | datetime.date,
-                         horizon: str | None = None):
-        # TODO: call the optimisation algorithm once it exists
-        raise NotImplementedError("The optimisation algorithm is not implemented yet")
+                         horizon: str | None = None) -> dict:
+        """Moves the processes to lower the day's peak power.
+        Returns the day summary before and after."""
+        before = self.getDaySummary(date, horizon)
+        optimizer = optimize.optimize(self.privateScheduleInstance,
+                                      self.areaScheduleInstance,
+                                      self.companyInstance)
+        optimizer.optimize_schedule(date, horizon)
+        return {"before": before, "after": self.getDaySummary(date, horizon)}
+
+    def getOptimFlex(self) -> int:
+        return self.companyInstance.maxOptimFlex
+
+    def setOptimFlex(self, quarters: int):
+        if quarters < 0:
+            raise ValueError("Flex must be zero or more quarters")
+        self.companyInstance.maxOptimFlex = int(quarters)
 
     # ---------------------------- Helpers ---------------------------- #
 
