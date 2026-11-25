@@ -16,8 +16,6 @@ schema1 = privateSchedule.schedule()
 
 schema1.addProcess(svarv1_körning, 3)
 
-
-
 schemaOmråde = areaSchedule.schedule()
 schemaOmråde.importJsonFiles()
 

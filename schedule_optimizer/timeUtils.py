@@ -8,7 +8,7 @@ HOURS_PER_QUARTER = MINUTES_PER_QUARTER / 60
 
 def indexToTime(index: int) -> str:
     minutes = index * MINUTES_PER_QUARTER
-    return f"{(minutes // 60) % 24:02d}:{minutes % 60:02d}"
+    return f"{minutes // 60:02d}:{minutes % 60:02d}"
 
 
 def timeToIndex(time: str) -> int:

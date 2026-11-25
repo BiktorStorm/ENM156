@@ -47,6 +47,7 @@ class optimize:
             raise ValueError("company.maxOptimFlex must be a non-negative integer")
 
         company_machines = {id(machine) for machine in self.company.machineList}
+        hours = getattr(self.company, "workingHours", None)
         movable_entries = []
         fixed_load = np.zeros(96, dtype=float)
 
@@ -69,10 +70,14 @@ class optimize:
                 raise ValueError("The private schedule contains an invalid process block")
 
             if id(scheduled_process.machine) in company_machines:
-                candidates = range(
-                    max(0, start - max_flex),
-                    min(96 - duration, start + max_flex) + 1,
-                )
+                # Only starts inside working hours (and outside lunch)
+                candidates = [
+                    candidate for candidate in range(
+                        max(0, start - max_flex),
+                        min(96 - duration, start + max_flex) + 1,
+                    )
+                    if hours is None or hours.allows(candidate, duration)
+                ]
                 movable_entries.append((entry, scheduled_process, start, power, duration, candidates))
             else:
                 fixed_load[start : start + duration] += power
@@ -80,8 +85,10 @@ class optimize:
         if not movable_entries:
             return self.ownSchedule
 
-        base_load = area_load + fixed_load
         candidates_by_process = [list(item[5]) for item in movable_entries]
+        order_pairs = self._apply_dependencies(movable_entries, candidates_by_process)
+
+        base_load = area_load + fixed_load
         variable_count = sum(len(candidates) for candidates in candidates_by_process)
         peak_variable = variable_count
         row_indices = []
@@ -113,10 +120,34 @@ class optimize:
             column_indices.append(peak_variable)
             coefficients.append(-1.0)
 
+        # Order constraints between two movable processes:
+        #   start(B) - end(A) >= 0
+        #   sum(s * x_B,s) - sum((s + duration_A) * x_A,s) >= 0
+        first_variable = []
+        variable = 0
+        for candidates in candidates_by_process:
+            first_variable.append(variable)
+            variable += len(candidates)
+
+        order_row = len(movable_entries) + 96
+        for dependent_index, dependency_index in order_pairs:
+            dependency_duration = movable_entries[dependency_index][4]
+            for offset, start in enumerate(candidates_by_process[dependent_index]):
+                row_indices.append(order_row)
+                column_indices.append(first_variable[dependent_index] + offset)
+                coefficients.append(float(start))
+            for offset, start in enumerate(candidates_by_process[dependency_index]):
+                row_indices.append(order_row)
+                column_indices.append(first_variable[dependency_index] + offset)
+                coefficients.append(-float(start + dependency_duration))
+            lower_bounds.append(0.0)
+            upper_bounds.append(np.inf)
+            order_row += 1
+
         constraints = LinearConstraint(
             coo_matrix(
                 (coefficients, (row_indices, column_indices)),
-                shape=(len(movable_entries) + 96, variable_count + 1),
+                shape=(order_row, variable_count + 1),
             ).tocsr(),
             np.asarray(lower_bounds),
             np.asarray(upper_bounds),
@@ -136,6 +167,11 @@ class optimize:
             constraints=constraints,
         )
         if not result.success:
+            if result.status == 2:
+                raise RuntimeError(
+                    "No schedule satisfies the process dependencies within the "
+                    "allowed shift. Allow a larger shift or move processes by hand."
+                )
             raise RuntimeError(f"Schedule optimization failed: {result.message}")
 
         allowed_peak = result.x[peak_variable] + max(
@@ -178,6 +214,64 @@ class optimize:
                 self.moveProcess(new_start, scheduled_process)
 
         return self.ownSchedule
+
+    def _apply_dependencies(self, movable_entries, candidates_by_process):
+        """Respects "B waits for A" (start(B) >= end(A)).
+
+        A dependency on or of a fixed process only narrows the candidate
+        starts of the movable one. Pairs where both can move are returned
+        as (dependent index, dependency index) and become MILP constraints.
+        """
+        movable_index = {
+            id(item[1]): index for index, item in enumerate(movable_entries)
+        }
+        fixed_start = {
+            id(entry["process"]): entry["startIndex"]
+            for entry in self.ownSchedule.processTimeline
+            if id(entry["process"]) not in movable_index
+        }
+        order_pairs = []
+
+        for entry in self.ownSchedule.processTimeline:
+            dependent = entry["process"]
+            for dependency in getattr(dependent, "dependencies", []):
+                dependency_end = None
+                if id(dependency) in fixed_start:
+                    dependency_end = (
+                        fixed_start[id(dependency)] + dependency.getDurationQuarter()
+                    )
+                elif id(dependency) not in movable_index:
+                    continue  # dependency is not scheduled
+
+                if id(dependent) in movable_index:
+                    dependent_index = movable_index[id(dependent)]
+                    if dependency_end is not None:
+                        candidates_by_process[dependent_index] = [
+                            start for start in candidates_by_process[dependent_index]
+                            if start >= dependency_end
+                        ]
+                    else:
+                        order_pairs.append(
+                            (dependent_index, movable_index[id(dependency)])
+                        )
+                elif id(dependency) in movable_index:
+                    dependency_index = movable_index[id(dependency)]
+                    duration = dependency.getDurationQuarter()
+                    dependent_start = fixed_start[id(dependent)]
+                    candidates_by_process[dependency_index] = [
+                        start for start in candidates_by_process[dependency_index]
+                        if start + duration <= dependent_start
+                    ]
+
+        for index, candidates in enumerate(candidates_by_process):
+            if not candidates:
+                name = movable_entries[index][1].machine.name
+                raise RuntimeError(
+                    f"{name} cannot be placed inside the working hours and after "
+                    "its dependencies within the allowed shift. Allow a larger "
+                    "shift or move processes by hand."
+                )
+        return order_pairs
 
     def moveProcess(self, newIndex: int, scheduledProcess: process_module.process):
         if (
