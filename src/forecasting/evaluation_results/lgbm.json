@@ -1,114 +1,113 @@
 {
-  "notes": "The initial evaluation. Trained on the original 1 year of data, data/processed/hourly_filled.parquet",
   "model": "lgbm",
-  "created": "2026-11-23T15:21:32",
+  "created": "2026-11-26T22:08:45",
   "48h": [
     {
       "factory": "A",
       "model": "lgbm",
-      "MAE": 35.889,
-      "RMSE": 61.333,
-      "nMAE": 0.226,
-      "n_hours": 10224,
-      "rel_MAE": 1.107
+      "MAE": 6.731,
+      "RMSE": 11.257,
+      "nMAE": 0.17,
+      "n_points": 40896,
+      "rel_MAE": 0.831
     },
     {
       "factory": "A",
       "model": "naive_day",
-      "MAE": 48.978,
-      "RMSE": 76.13,
+      "MAE": 12.245,
+      "RMSE": 19.032,
       "nMAE": 0.309,
-      "n_hours": 10224,
+      "n_points": 40896,
       "rel_MAE": 1.511
     },
     {
       "factory": "A",
       "model": "naive_week",
-      "MAE": 32.407,
-      "RMSE": 59.56,
+      "MAE": 8.102,
+      "RMSE": 14.89,
       "nMAE": 0.204,
-      "n_hours": 10224,
+      "n_points": 40896,
       "rel_MAE": 1.0
     },
     {
       "factory": "B",
       "model": "lgbm",
-      "MAE": 15.45,
-      "RMSE": 22.347,
-      "nMAE": 0.103,
-      "n_hours": 8644,
-      "rel_MAE": 0.942
+      "MAE": 3.739,
+      "RMSE": 5.565,
+      "nMAE": 0.102,
+      "n_points": 40896,
+      "rel_MAE": 0.915
     },
     {
       "factory": "B",
       "model": "naive_day",
-      "MAE": 27.32,
-      "RMSE": 43.952,
-      "nMAE": 0.183,
-      "n_hours": 8644,
-      "rel_MAE": 1.666
+      "MAE": 6.534,
+      "RMSE": 10.691,
+      "nMAE": 0.179,
+      "n_points": 40896,
+      "rel_MAE": 1.6
     },
     {
       "factory": "B",
       "model": "naive_week",
-      "MAE": 16.4,
-      "RMSE": 25.22,
-      "nMAE": 0.11,
-      "n_hours": 8644,
+      "MAE": 4.085,
+      "RMSE": 6.466,
+      "nMAE": 0.112,
+      "n_points": 40896,
       "rel_MAE": 1.0
     },
     {
       "factory": "C",
       "model": "lgbm",
-      "MAE": 47.878,
-      "RMSE": 83.767,
-      "nMAE": 0.251,
-      "n_hours": 8328,
-      "rel_MAE": 1.218
+      "MAE": 9.247,
+      "RMSE": 15.913,
+      "nMAE": 0.196,
+      "n_points": 40896,
+      "rel_MAE": 0.859
     },
     {
       "factory": "C",
       "model": "naive_day",
-      "MAE": 105.293,
-      "RMSE": 187.178,
-      "nMAE": 0.552,
-      "n_hours": 8328,
-      "rel_MAE": 2.679
+      "MAE": 25.819,
+      "RMSE": 46.346,
+      "nMAE": 0.548,
+      "n_points": 40896,
+      "rel_MAE": 2.399
     },
     {
       "factory": "C",
       "model": "naive_week",
-      "MAE": 39.302,
-      "RMSE": 80.536,
-      "nMAE": 0.206,
-      "n_hours": 8328,
+      "MAE": 10.762,
+      "RMSE": 22.232,
+      "nMAE": 0.229,
+      "n_points": 40896,
       "rel_MAE": 1.0
     },
     {
       "factory": "D",
       "model": "lgbm",
-      "MAE": 9.121,
-      "RMSE": 14.534,
-      "nMAE": 0.089,
-      "n_hours": 10224,
-      "rel_MAE": 0.928
+      "MAE": 2.224,
+      "RMSE": 3.485,
+      "nMAE": 0.087,
+      "n_points": 40896,
+      "rel_MAE": 0.905
     },
     {
       "factory": "D",
       "model": "naive_day",
-      "MAE": 14.987,
-      "RMSE": 23.965,
+      "MAE": 3.747,
+      "RMSE": 5.991,
       "nMAE": 0.146,
-      "n_hours": 10224,
+      "n_points": 40896,
       "rel_MAE": 1.525
     },
     {
       "factory": "D",
       "model": "naive_week",
-      "MAE": 9.825,
-      "RMSE": 16.105,
+      "MAE": 2.456,
+      "RMSE": 4.026,
       "nMAE": 0.096,
-      "n_hours": 10224,
+      "n_points": 40896,
       "rel_MAE": 1.0
     }
   ],
@@ -116,109 +115,109 @@
     {
       "factory": "A",
       "model": "lgbm",
-      "MAE": 48.889,
-      "RMSE": 76.666,
-      "nMAE": 0.303,
-      "n_hours": 9744,
-      "rel_MAE": 1.362
+      "MAE": 8.31,
+      "RMSE": 13.18,
+      "nMAE": 0.206,
+      "n_points": 38976,
+      "rel_MAE": 0.926
     },
     {
       "factory": "A",
       "model": "naive_day",
-      "MAE": 58.237,
-      "RMSE": 89.787,
+      "MAE": 14.559,
+      "RMSE": 22.447,
       "nMAE": 0.36,
-      "n_hours": 9744,
+      "n_points": 38976,
       "rel_MAE": 1.623
     },
     {
       "factory": "A",
       "model": "naive_week",
-      "MAE": 35.888,
-      "RMSE": 66.289,
+      "MAE": 8.972,
+      "RMSE": 16.572,
       "nMAE": 0.222,
-      "n_hours": 9744,
+      "n_points": 38976,
       "rel_MAE": 1.0
     },
     {
       "factory": "B",
       "model": "lgbm",
-      "MAE": 17.583,
-      "RMSE": 24.478,
-      "nMAE": 0.118,
-      "n_hours": 8500,
-      "rel_MAE": 1.029
+      "MAE": 4.163,
+      "RMSE": 5.928,
+      "nMAE": 0.113,
+      "n_points": 38976,
+      "rel_MAE": 0.999
     },
     {
       "factory": "B",
       "model": "naive_day",
-      "MAE": 32.894,
-      "RMSE": 49.052,
-      "nMAE": 0.22,
-      "n_hours": 8500,
-      "rel_MAE": 1.926
+      "MAE": 8.173,
+      "RMSE": 12.188,
+      "nMAE": 0.222,
+      "n_points": 38976,
+      "rel_MAE": 1.961
     },
     {
       "factory": "B",
       "model": "naive_week",
-      "MAE": 17.084,
-      "RMSE": 25.701,
-      "nMAE": 0.114,
-      "n_hours": 8500,
+      "MAE": 4.168,
+      "RMSE": 6.359,
+      "nMAE": 0.113,
+      "n_points": 38976,
       "rel_MAE": 1.0
     },
     {
       "factory": "C",
       "model": "lgbm",
-      "MAE": 59.186,
-      "RMSE": 98.093,
-      "nMAE": 0.31,
-      "n_hours": 8184,
-      "rel_MAE": 1.281
+      "MAE": 10.471,
+      "RMSE": 17.329,
+      "nMAE": 0.218,
+      "n_points": 38976,
+      "rel_MAE": 0.886
     },
     {
       "factory": "C",
       "model": "naive_day",
-      "MAE": 101.617,
-      "RMSE": 175.617,
-      "nMAE": 0.532,
-      "n_hours": 8184,
-      "rel_MAE": 2.2
+      "MAE": 26.354,
+      "RMSE": 44.756,
+      "nMAE": 0.547,
+      "n_points": 38976,
+      "rel_MAE": 2.231
     },
     {
       "factory": "C",
       "model": "naive_week",
-      "MAE": 46.185,
-      "RMSE": 89.936,
-      "nMAE": 0.242,
-      "n_hours": 8184,
+      "MAE": 11.812,
+      "RMSE": 22.48,
+      "nMAE": 0.245,
+      "n_points": 38976,
       "rel_MAE": 1.0
     },
     {
       "factory": "D",
       "model": "lgbm",
-      "MAE": 10.228,
-      "RMSE": 15.708,
-      "nMAE": 0.099,
-      "n_hours": 9744,
-      "rel_MAE": 1.006
+      "MAE": 2.574,
+      "RMSE": 3.955,
+      "nMAE": 0.1,
+      "n_points": 38976,
+      "rel_MAE": 1.013
     },
     {
       "factory": "D",
       "model": "naive_day",
-      "MAE": 12.904,
-      "RMSE": 20.934,
+      "MAE": 3.226,
+      "RMSE": 5.233,
       "nMAE": 0.125,
-      "n_hours": 9744,
+      "n_points": 38976,
       "rel_MAE": 1.269
     },
     {
       "factory": "D",
       "model": "naive_week",
-      "MAE": 10.164,
-      "RMSE": 16.377,
+      "MAE": 2.541,
+      "RMSE": 4.094,
       "nMAE": 0.099,
-      "n_hours": 9744,
+      "n_points": 38976,
       "rel_MAE": 1.0
     }
   ]

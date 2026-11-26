@@ -1,29 +1,31 @@
-"""LightGBM forecast on calendar features plus the load at the same hour 1-3 weeks earlier."""
+"""LightGBM forecast on calendar features, a holiday/shutdown flag and the load at the same time 1-3 weeks earlier."""
 import json
 
 import lightgbm as lgb
 import pandas as pd
 
 from src.forecasting.evaluate import HORIZONS, backtest, summary
+from src.forecasting.shutdowns import is_holiday
 from src.preprocessing.load_data import PROJECT_ROOT
 
-WEEK = 168
+WEEK = pd.Timedelta("7D")
 RESULTS_PATH = PROJECT_ROOT / "src" / "forecasting" / "evaluation_results" / "lgbm.json"
 
 
 def features(kwh, index, lags):
-    # kwh holds history only; a lag is usable only if lag >= horizon, so it never reaches into the future
-    X = pd.DataFrame({"hour": index.hour, "weekday": index.day_of_week}, index=index)
+    # kwh holds history only; a lag is usable only if it is longer than the forecast window
+    X = pd.DataFrame({"hour": index.hour, "minute": index.minute, "weekday": index.day_of_week,
+                      "is_holiday": is_holiday(index, kwh.name)}, index=index)
     for lag in lags:
-        X[f"lag_{lag}"] = kwh.shift(lag, freq="h").reindex(index).to_numpy()
+        X[f"lag_{lag.days}d"] = kwh.shift(freq=lag).reindex(index).to_numpy()
     return X
 
 
 def predict(history, future):
-    lags = [lag for lag in (WEEK, 2 * WEEK, 3 * WEEK) if lag >= len(future)]
+    lags = [lag for lag in (WEEK, 2 * WEEK, 3 * WEEK) if lag > future[-1] - future[0]]
     X = features(history, history.index, lags)
     model = lgb.LGBMRegressor(n_estimators=200, learning_rate=0.05, num_leaves=31, verbose=-1,
-                              n_jobs=1)  # threads only add overhead on ~8k rows
+                              n_jobs=1)  # threads only add overhead on ~30k rows
     model.fit(X, history.to_numpy(), categorical_feature=["weekday"])
     return model.predict(features(history, future, lags))
 
