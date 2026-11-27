@@ -8,6 +8,21 @@ import areaSchedule
 import company as company_module
 import privateSchedule
 import process as process_module
+import timeUtils
+
+# Moves the company's processes (those on the company's machines) to lower
+# the day's peak power. Every process stays within max shift quarters of
+# its current start, keeps to the working hours (machines allowed to run
+# outside them only have to start inside them), finishes by its deadline,
+# keeps its dependency order, and a machine never runs two processes at once.
+#
+# propose_schedule() returns the result as a copy and leaves ownSchedule as
+# it is, so the max shift is always measured from the real schedule.
+# optimize_schedule() moves the processes of ownSchedule directly.
+
+
+def _span(start: int, duration: int) -> str:
+    return f"{timeUtils.indexToTime(start)}–{timeUtils.indexToTime(start + duration)}"
 
 
 class optimize:
@@ -26,6 +41,32 @@ class optimize:
         date: datetime | str | None = None,
         horizon: str | None = None,
     ):
+        """Moves the processes of ownSchedule to the optimised starts."""
+        for index, new_start in self._solve(date, horizon).items():
+            entry = self.ownSchedule.processTimeline[index]
+            if new_start != entry["startIndex"]:
+                self.moveProcess(new_start, entry["process"])
+        return self.ownSchedule
+
+    def propose_schedule(
+        self,
+        date: datetime | str | None = None,
+        horizon: str | None = None,
+    ) -> privateSchedule.schedule:
+        """The optimised schedule as a copy of ownSchedule (same processes,
+        new starts). ownSchedule itself is not changed."""
+        proposed = self.ownSchedule.copy()
+        for index, new_start in self._solve(date, horizon).items():
+            proposed.processTimeline[index]["startIndex"] = new_start
+        return proposed
+
+    def _solve(
+        self,
+        date: datetime | str | None = None,
+        horizon: str | None = None,
+    ) -> dict[int, int]:
+        """Optimised start of every movable process, keyed by its position
+        in ownSchedule.processTimeline. Nothing is moved."""
         if self.company is None:
             raise ValueError("A company is required to identify movable processes")
 
@@ -49,6 +90,7 @@ class optimize:
         company_machines = {id(machine) for machine in self.company.machineList}
         hours = getattr(self.company, "workingHours", None)
         movable_entries = []
+        fixed_entries = []
         fixed_load = np.zeros(96, dtype=float)
 
         for entry in self.ownSchedule.processTimeline:
@@ -70,23 +112,32 @@ class optimize:
                 raise ValueError("The private schedule contains an invalid process block")
 
             if id(scheduled_process.machine) in company_machines:
-                # Only starts inside working hours (and outside lunch)
-                candidates = [
-                    candidate for candidate in range(
-                        max(0, start - max_flex),
-                        min(96 - duration, start + max_flex) + 1,
-                    )
-                    if hours is None or hours.allows(candidate, duration)
-                ]
+                candidates = self._candidate_starts(
+                    scheduled_process, start, duration, max_flex, hours
+                )
                 movable_entries.append((entry, scheduled_process, start, power, duration, candidates))
             else:
+                fixed_entries.append(entry)
                 fixed_load[start : start + duration] += power
 
+        # Fixed processes cannot be moved, so a machine clash between two of
+        # them can never be solved here.
+        self._check_fixed_overlaps(fixed_entries)
+
         if not movable_entries:
-            return self.ownSchedule
+            return {}
 
         candidates_by_process = [list(item[5]) for item in movable_entries]
         order_pairs = self._apply_dependencies(movable_entries, candidates_by_process)
+
+        first_variable = []
+        variable = 0
+        for candidates in candidates_by_process:
+            first_variable.append(variable)
+            variable += len(candidates)
+        overlap_rows = self._machine_overlap_rows(
+            movable_entries, candidates_by_process, first_variable
+        )
 
         base_load = area_load + fixed_load
         variable_count = sum(len(candidates) for candidates in candidates_by_process)
@@ -123,12 +174,6 @@ class optimize:
         # Order constraints between two movable processes:
         #   start(B) - end(A) >= 0
         #   sum(s * x_B,s) - sum((s + duration_A) * x_A,s) >= 0
-        first_variable = []
-        variable = 0
-        for candidates in candidates_by_process:
-            first_variable.append(variable)
-            variable += len(candidates)
-
         order_row = len(movable_entries) + 96
         for dependent_index, dependency_index in order_pairs:
             dependency_duration = movable_entries[dependency_index][4]
@@ -142,6 +187,16 @@ class optimize:
                 coefficients.append(-float(start + dependency_duration))
             lower_bounds.append(0.0)
             upper_bounds.append(np.inf)
+            order_row += 1
+
+        # One process at a time per machine (see _machine_overlap_rows)
+        for variables in overlap_rows:
+            for overlap_variable in variables:
+                row_indices.append(order_row)
+                column_indices.append(overlap_variable)
+                coefficients.append(1.0)
+            lower_bounds.append(-np.inf)
+            upper_bounds.append(1.0)
             order_row += 1
 
         constraints = LinearConstraint(
@@ -170,7 +225,8 @@ class optimize:
         if not result.success:
             if result.status == 2:
                 raise RuntimeError(
-                    "No schedule satisfies the process dependencies within the "
+                    "No schedule satisfies the dependencies, deadlines and machine "
+                    "availability (one process at a time per machine) within the "
                     "allowed shift. Allow a larger shift or move processes by hand."
                 )
             raise RuntimeError(f"Schedule optimization failed: {result.message}")
@@ -194,6 +250,7 @@ class optimize:
             movable_entries=movable_entries,
             candidates_by_process=candidates_by_process,
             order_pairs=order_pairs,
+            overlap_rows=overlap_rows,
             base_load=base_load,
             allowed_peak=allowed_peak,
             movement_cost=movement_cost,
@@ -211,18 +268,145 @@ class optimize:
         if len(selected_starts) != len(movable_entries):
             raise RuntimeError("Schedule optimizer returned an incomplete process placement")
 
-        for process_index, (entry, scheduled_process, *_rest) in enumerate(movable_entries):
-            new_start = selected_starts[process_index]
-            if new_start != entry["startIndex"]:
-                self.moveProcess(new_start, scheduled_process)
+        position = {
+            id(entry): index
+            for index, entry in enumerate(self.ownSchedule.processTimeline)
+        }
+        new_starts = {
+            position[id(item[0])]: selected_starts[process_index]
+            for process_index, item in enumerate(movable_entries)
+        }
+        self._validate_result(new_starts, movable_entries, hours, max_flex)
+        return new_starts
 
-        return self.ownSchedule
+    # ---------------------- Constraints and checks ---------------------- #
+
+    @staticmethod
+    def _candidate_starts(scheduled_process, start, duration, max_flex, hours):
+        """Starts within max_flex of start that fit the day and the working
+        hours and finish by the deadline. Raises if there are none."""
+        name = f"{scheduled_process.machine.name} ({_span(start, duration)})"
+        outside = scheduled_process.machine.allowOutsideHours
+        within_shift = range(max(0, start - max_flex), min(96 - duration, start + max_flex) + 1)
+        in_hours = [
+            candidate for candidate in within_shift
+            if hours is None or hours.allows(candidate, duration, outside)
+        ]
+        if not in_hours:
+            where = "start within" if outside else "fit inside"
+            raise RuntimeError(
+                f"{name} cannot {where} the working hours within the allowed shift "
+                f"of {max_flex} quarters. Allow a larger shift or move it by hand."
+            )
+        candidates = [c for c in in_hours if scheduled_process.meetsDeadline(c)]
+        if not candidates:
+            raise RuntimeError(
+                f"{name} cannot be finished by its deadline "
+                f"{timeUtils.indexToTime(scheduled_process.deadline)} within the "
+                f"allowed shift of {max_flex} quarters. Allow a larger shift, move it "
+                "by hand or change the deadline."
+            )
+        return candidates
+
+    @staticmethod
+    def _check_fixed_overlaps(fixed_entries):
+        for i, a in enumerate(fixed_entries):
+            a_duration = a["process"].getDurationQuarter()
+            for b in fixed_entries[i + 1:]:
+                b_duration = b["process"].getDurationQuarter()
+                if (
+                    a["process"].machine is b["process"].machine
+                    and a["startIndex"] < b["startIndex"] + b_duration
+                    and b["startIndex"] < a["startIndex"] + a_duration
+                ):
+                    raise RuntimeError(
+                        f"{a['process'].machine.name} runs two processes at the same time "
+                        f"({_span(a['startIndex'], a_duration)} and "
+                        f"{_span(b['startIndex'], b_duration)}). The optimiser cannot move "
+                        "them because the machine does not belong to the company."
+                    )
+
+    @staticmethod
+    def _machine_overlap_rows(movable_entries, candidates_by_process, first_variable):
+        """A machine runs one process at a time. For every machine with more
+        than one movable process and every quarter q:
+            sum(x_p,s for p on the machine, s <= q < s + duration_p) <= 1
+        Returns the variables of each such row (all coefficients are 1).
+        Quarters only one process can cover need no row."""
+        by_machine = {}
+        for process_index, item in enumerate(movable_entries):
+            by_machine.setdefault(id(item[1].machine), []).append(process_index)
+
+        rows = []
+        for process_indices in by_machine.values():
+            if len(process_indices) < 2:
+                continue
+            covering = {}  # quarter -> [(process index, variable)]
+            for process_index in process_indices:
+                duration = movable_entries[process_index][4]
+                for offset, start in enumerate(candidates_by_process[process_index]):
+                    for quarter in range(start, start + duration):
+                        covering.setdefault(quarter, []).append(
+                            (process_index, first_variable[process_index] + offset)
+                        )
+            for quarter in sorted(covering):
+                items = covering[quarter]
+                if len({process_index for process_index, _ in items}) > 1:
+                    rows.append([variable for _, variable in items])
+        return rows
+
+    def _validate_result(self, new_starts, movable_entries, hours, max_flex):
+        """Checks the optimised placement against every rule, so a solver
+        tolerance can never produce an invalid schedule."""
+        timeline = self.ownSchedule.processTimeline
+        starts = [new_starts.get(i, entry["startIndex"]) for i, entry in enumerate(timeline)]
+        movable = {id(item[1]) for item in movable_entries}
+        problems = []
+
+        for index, entry in enumerate(timeline):
+            proc = entry["process"]
+            if id(proc) not in movable:
+                continue
+            start, duration = starts[index], proc.getDurationQuarter()
+            name = f"{proc.machine.name} ({_span(start, duration)})"
+            if abs(start - entry["startIndex"]) > max_flex:
+                problems.append(f"{name} moves more than {max_flex} quarters")
+            if hours is not None and not hours.allows(start, duration, proc.machine.allowOutsideHours):
+                problems.append(f"{name} is outside the working hours")
+            if not proc.meetsDeadline(start):
+                problems.append(f"{name} ends after its deadline")
+
+        start_of = {id(entry["process"]): starts[i] for i, entry in enumerate(timeline)}
+        for i, a in enumerate(timeline):
+            a_proc, a_end = a["process"], starts[i] + a["process"].getDurationQuarter()
+            for j in range(i + 1, len(timeline)):
+                b_proc = timeline[j]["process"]
+                b_end = starts[j] + b_proc.getDurationQuarter()
+                if (
+                    a_proc.machine is b_proc.machine
+                    and (id(a_proc) in movable or id(b_proc) in movable)
+                    and starts[i] < b_end and starts[j] < a_end
+                ):
+                    problems.append(f"{a_proc.machine.name} runs two processes at once")
+            for dependency in a_proc.dependencies:
+                if id(dependency) not in start_of:
+                    continue
+                if id(a_proc) not in movable and id(dependency) not in movable:
+                    continue
+                if starts[i] < start_of[id(dependency)] + dependency.getDurationQuarter():
+                    problems.append(f"{a_proc.machine.name} starts before its dependency ends")
+
+        if problems:
+            raise RuntimeError(
+                "The optimiser produced an invalid schedule: " + "; ".join(problems)
+            )
 
     def _optimize_average_and_movement(
         self,
         movable_entries,
         candidates_by_process,
         order_pairs,
+        overlap_rows,
         base_load: np.ndarray,
         allowed_peak: float,
         movement_cost: np.ndarray,
@@ -379,6 +563,16 @@ class optimize:
                 coefficients.append(-float(start + dependency_duration))
             lower_bounds.append(0.0)
             upper_bounds.append(np.inf)
+            next_row += 1
+
+        # 4b. One process at a time per machine (same rows as stage 1).
+        for variables in overlap_rows:
+            for overlap_variable in variables:
+                row_indices.append(next_row)
+                column_indices.append(overlap_variable)
+                coefficients.append(1.0)
+            lower_bounds.append(-np.inf)
+            upper_bounds.append(1.0)
             next_row += 1
 
         # 5. Variable bounds: d_q in [(l_min - mean)/scale, (l_max - mean)/scale]
@@ -579,10 +773,11 @@ class optimize:
 
         for index, candidates in enumerate(candidates_by_process):
             if not candidates:
-                name = movable_entries[index][1].machine.name
+                _, scheduled_process, start, _, duration, _ = movable_entries[index]
                 raise RuntimeError(
-                    f"{name} cannot be placed inside the working hours and after "
-                    "its dependencies within the allowed shift. Allow a larger "
+                    f"{scheduled_process.machine.name} ({_span(start, duration)}) cannot "
+                    "be placed inside the working hours, by its deadline and in order "
+                    "with its dependencies within the allowed shift. Allow a larger "
                     "shift or move processes by hand."
                 )
         return order_pairs

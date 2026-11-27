@@ -5,6 +5,10 @@ import timeUtils
 # A process must lie completely inside [start, end) and may not overlap the
 # lunch break [lunchStart, lunchEnd). By default the whole day is open and
 # there is no lunch.
+#
+# A machine that is allowed to run outside the hours (machine.allowOutsideHours)
+# only has to *start* inside them (not during lunch). It may then keep running
+# through lunch and after closing, but still has to finish by 24:00.
 
 class workingHours:
     def __init__(self, start: int = 0, end: int = timeUtils.QUARTERS_PER_DAY,
@@ -37,19 +41,28 @@ class workingHours:
             return False
         return not (self.hasLunch() and self.lunchStart <= quarter < self.lunchEnd)
 
-    def allows(self, startIndex: int, duration: int) -> bool:
-        """True if a process can run from startIndex for duration quarters."""
-        return duration > 0 and all(
-            self.isWorking(q) for q in range(startIndex, startIndex + duration))
+    def allows(self, startIndex: int, duration: int,
+               outsideHours: bool = False) -> bool:
+        """True if a process can run from startIndex for duration quarters.
+        outsideHours: the machine may run outside the hours, so only the
+        start has to be inside them."""
+        if (duration <= 0 or startIndex < 0
+                or startIndex + duration > timeUtils.QUARTERS_PER_DAY):
+            return False
+        if outsideHours:
+            return self.isWorking(startIndex)
+        return all(self.isWorking(q) for q in range(startIndex, startIndex + duration))
 
     def allowedStarts(self, duration: int, first: int = 0,
-                      last: int = timeUtils.QUARTERS_PER_DAY) -> list[int]:
+                      last: int = timeUtils.QUARTERS_PER_DAY,
+                      outsideHours: bool = False) -> list[int]:
         """Every allowed start in [first, last]."""
         return [s for s in range(max(first, 0), last + 1)
-                if self.allows(s, duration)]
+                if self.allows(s, duration, outsideHours)]
 
-    def nextAllowedStart(self, fromIndex: int, duration: int) -> int | None:
-        starts = self.allowedStarts(duration, fromIndex)
+    def nextAllowedStart(self, fromIndex: int, duration: int,
+                         outsideHours: bool = False) -> int | None:
+        starts = self.allowedStarts(duration, fromIndex, outsideHours=outsideHours)
         return starts[0] if starts else None
 
     def describe(self) -> str:

@@ -4,3 +4,4 @@ numpy
 scipy>=1.9
 jupyter
 pyarrow
+pillow

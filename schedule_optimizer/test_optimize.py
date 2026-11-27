@@ -96,7 +96,7 @@ class DependencyTests(unittest.TestCase):
     def test_setting_a_dependency_pushes_the_chain_later(self):
         a = self.add(self.machine_a, 4, 10)
         b = self.add(self.machine_b, 2, 8)
-        c = self.add(self.machine_b, 2, 9)
+        c = self.add(self.machine_b, 2, 10)  # B is busy until 10
         self.schedule.setDependencies(c, [b])
         self.schedule.setDependencies(b, [a])
         self.assertEqual(self.schedule.getStart(b), 14)
@@ -133,7 +133,7 @@ class DependencyTests(unittest.TestCase):
     def test_multiple_dependencies(self):
         a = self.add(self.machine_a, 4, 0)
         b = self.add(self.machine_b, 6, 0)
-        c = self.add(self.machine_a, 2, 0)
+        c = self.add(self.machine_a, 2, 4)  # A is busy until 4
         self.schedule.setDependencies(c, [a, b])
         self.assertEqual(self.schedule.getStart(c), 6)
 
@@ -258,6 +258,273 @@ class WorkingHoursTests(unittest.TestCase):
             self.schedule, FakeAreaSchedule([0.0] * 96), self.company
         ).optimize_schedule("test-day")
         self.assertEqual(self.schedule.getStart(p), 32)
+
+
+class OutsideHoursTests(unittest.TestCase):
+    """Machines allowed to run outside the working hours must start inside
+    them, but may then run through lunch and after closing."""
+
+    def setUp(self):
+        self.company = company.company("company")
+        self.free = machine.machine(10, "free", allowOutsideHours=True)
+        self.strict = machine.machine(10, "strict")
+        self.company.addMachine(self.free)
+        self.company.addMachine(self.strict)
+        self.schedule = privateSchedule.schedule()
+        self.schedule.workingHours = self.company.workingHours
+        # 07:00-16:00 with lunch 12:00-13:00
+        self.company.workingHours.set(28, 64, 48, 52)
+
+    def test_allowed_machine_runs_through_lunch_and_past_closing(self):
+        through_lunch = process.process(self.free, 4)
+        self.schedule.addProcess(through_lunch, 46)    # 11:30-12:30
+        past_closing = process.process(self.free, 8)
+        self.schedule.addProcess(past_closing, 62)     # 15:30-17:30
+        self.assertEqual(self.schedule.getWorkingHourViolations(), [])
+        self.assertTrue(self.schedule.runsPastHours(past_closing, 62))
+
+    def test_allowed_machine_must_still_start_within_hours(self):
+        for start in (26, 48, 64):  # before opening, during lunch, at closing
+            with self.assertRaises(ValueError):
+                self.schedule.addProcess(process.process(self.free, 4), start)
+        p = process.process(self.free, 4)
+        self.schedule.addProcess(p, 60)
+        with self.assertRaises(ValueError):
+            self.schedule.moveProcess(p, 66)
+        with self.assertRaises(ValueError):   # still has to finish by 24:00
+            self.schedule.moveProcess(p, 93)
+
+    def test_other_machines_keep_to_the_hours(self):
+        for start in (46, 62):
+            with self.assertRaises(ValueError):
+                self.schedule.addProcess(process.process(self.strict, 4), start)
+
+    def test_turning_the_permission_off_flags_the_process(self):
+        p = process.process(self.free, 8)
+        self.schedule.addProcess(p, 62)
+        self.company.editMachine("free", allowOutsideHours=False)
+        self.assertEqual(self.schedule.getWorkingHourViolations(), [p])
+
+    def _afternoon_peak(self):
+        # The area load is high during all working quarters, low at lunch
+        # and in the evening.
+        area = [0.0] * 96
+        area[28:48] = [50.0] * 20
+        area[52:64] = [50.0] * 12
+        return area
+
+    def test_optimizer_lets_allowed_machine_run_past_closing(self):
+        p = process.process(self.free, 8)
+        self.schedule.addProcess(p, 56)   # 14:00-16:00
+        self.company.maxOptimFlex = 16
+
+        optimize.optimize(
+            self.schedule, FakeAreaSchedule(self._afternoon_peak()), self.company
+        ).optimize_schedule("test-day")
+
+        # Latest start inside the hours: 15:45, then it runs on until 17:45
+        self.assertEqual(self.schedule.getStart(p), 63)
+        self.assertGreater(self.schedule.getEnd(p), 64)
+        self.assertEqual(self.schedule.getWorkingHourViolations(), [])
+
+    def test_optimizer_keeps_other_machines_inside_hours(self):
+        p = process.process(self.strict, 8)
+        self.schedule.addProcess(p, 56)
+        self.company.maxOptimFlex = 16
+
+        optimize.optimize(
+            self.schedule, FakeAreaSchedule(self._afternoon_peak()), self.company
+        ).optimize_schedule("test-day")
+
+        self.assertEqual(self.schedule.getWorkingHourViolations(), [])
+        self.assertLessEqual(self.schedule.getEnd(p), 64)
+
+
+class DeadlineTests(unittest.TestCase):
+    def setUp(self):
+        self.machine = machine.machine(10, "A")
+        self.company = company.company("company")
+        self.company.addMachine(self.machine)
+        self.schedule = privateSchedule.schedule()
+
+    def test_invalid_deadlines_are_rejected(self):
+        for deadline in (0, 97, 3, True, 12.5):
+            with self.assertRaises(ValueError):
+                process.process(self.machine, 4, deadline)
+
+    def test_processes_cannot_be_added_or_moved_past_their_deadline(self):
+        with self.assertRaises(ValueError):
+            self.schedule.addProcess(process.process(self.machine, 4, deadline=40), 37)
+        p = process.process(self.machine, 4, deadline=40)
+        self.schedule.addProcess(p, 36)          # ends exactly at the deadline
+        with self.assertRaises(ValueError):
+            self.schedule.moveProcess(p, 37)
+        self.schedule.moveProcess(p, 30)
+        self.assertEqual(self.schedule.latestStart(p), 36)
+        self.assertEqual(max(self.schedule.allowedStarts(p)), 36)
+
+    def test_dependency_push_that_breaks_a_deadline_changes_nothing(self):
+        other = machine.machine(10, "B")
+        a = process.process(other, 4)
+        b = process.process(self.machine, 4, deadline=12)
+        self.schedule.addProcess(a, 10)   # ends at 14
+        self.schedule.addProcess(b, 0)
+        with self.assertRaises(ValueError):
+            self.schedule.setDependencies(b, [a])
+        self.assertEqual(self.schedule.getStart(b), 0)
+        self.assertEqual(b.dependencies, [])
+
+    def _optimize(self, area):
+        optimize.optimize(
+            self.schedule, FakeAreaSchedule(area), self.company
+        ).optimize_schedule("test-day")
+
+    def test_optimizer_keeps_processes_before_their_deadline(self):
+        # High load early in the day: the process would like to move to 14
+        area = [0.0] * 96
+        area[2:14] = [100.0] * 12
+        self.company.maxOptimFlex = 8
+
+        free = process.process(self.machine, 4)
+        self.schedule.addProcess(free, 10)
+        self._optimize(area)
+        self.assertEqual(self.schedule.getStart(free), 14)
+        self.schedule.removeProcess(free)
+
+        due = process.process(self.machine, 4, deadline=16)
+        self.schedule.addProcess(due, 10)
+        self._optimize(area)
+        self.assertEqual(self.schedule.getStart(due), 12)   # 12-16, just in time
+        self.assertEqual(self.schedule.getDeadlineViolations(), [])
+
+    def test_optimizer_moves_a_late_process_before_its_deadline(self):
+        p = process.process(self.machine, 4)
+        self.schedule.addProcess(p, 20)
+        p.setDeadline(22)                  # set after scheduling: now late
+        self.assertEqual(self.schedule.getDeadlineViolations(), [p])
+        self._optimize([0.0] * 96)
+        self.assertEqual(self.schedule.getStart(p), 18)
+        self.assertEqual(self.schedule.getDeadlineViolations(), [])
+
+    def test_optimizer_reports_a_deadline_it_cannot_meet(self):
+        p = process.process(self.machine, 4)
+        self.schedule.addProcess(p, 40)
+        p.setDeadline(20)
+        self.company.maxOptimFlex = 4
+        with self.assertRaisesRegex(RuntimeError, "deadline"):
+            self._optimize([0.0] * 96)
+        self.assertEqual(self.schedule.getStart(p), 40)
+
+
+class MachineOverlapTests(unittest.TestCase):
+    """A machine instance runs one process at a time."""
+
+    def setUp(self):
+        self.machine_a = machine.machine(10, "A")
+        self.machine_b = machine.machine(10, "B")
+        self.company = company.company("company")
+        self.company.addMachine(self.machine_a)
+        self.company.addMachine(self.machine_b)
+        self.schedule = privateSchedule.schedule()
+
+    def add(self, machine_instance, duration, start):
+        new_process = process.process(machine_instance, duration)
+        self.schedule.addProcess(new_process, start)
+        return new_process
+
+    def test_overlapping_processes_on_one_machine_are_refused(self):
+        a = self.add(self.machine_a, 4, 10)
+        with self.assertRaises(ValueError):
+            self.add(self.machine_a, 4, 12)
+        with self.assertRaises(ValueError):
+            self.add(self.machine_a, 4, 8)
+        self.add(self.machine_a, 2, 8)           # ends right when a starts
+        b = self.add(self.machine_a, 4, 14)      # right after a
+        self.add(self.machine_b, 4, 12)          # another machine is free
+        with self.assertRaises(ValueError):
+            self.schedule.moveProcess(b, 13)
+        self.assertNotIn(12, self.schedule.allowedStarts(b))
+        self.assertEqual(self.schedule.getStart(a), 10)
+        self.assertEqual(self.schedule.getOverlapViolations(), [])
+
+    def test_dependency_push_skips_time_the_machine_is_busy(self):
+        a = self.add(self.machine_a, 4, 10)      # ends at 14
+        self.add(self.machine_b, 4, 16)          # B busy 16-20
+        b = self.add(self.machine_b, 4, 0)
+        self.schedule.setDependencies(b, [a])
+        self.assertEqual(self.schedule.getStart(b), 20)
+        self.assertEqual(self.schedule.getOverlapViolations(), [])
+
+    def test_overlaps_made_by_hand_are_reported(self):
+        a = self.add(self.machine_a, 4, 10)
+        b = process.process(self.machine_a, 4)
+        self.schedule.processTimeline.append({"startIndex": 12, "process": b})
+        self.assertEqual(self.schedule.getOverlapViolations(), [(a, b)])
+
+    def _valley_area(self):
+        area = [100.0] * 96
+        area[20:24] = [0.0] * 4
+        return area
+
+    def _optimize(self):
+        optimize.optimize(
+            self.schedule, FakeAreaSchedule(self._valley_area()), self.company
+        ).optimize_schedule("test-day")
+
+    def test_optimizer_uses_the_valley_for_two_machines(self):
+        a = self.add(self.machine_a, 4, 16)
+        b = self.add(self.machine_b, 4, 24)
+        self._optimize()
+        self.assertEqual(self.schedule.getStart(a), 20)
+        self.assertEqual(self.schedule.getStart(b), 20)
+
+    def test_optimizer_never_runs_two_processes_on_one_machine(self):
+        # Both want the valley at 20-24, but they share machine A. Running
+        # both in it would give a peak of 100 kW, one at a time gives 110.
+        self.add(self.machine_a, 4, 16)
+        self.add(self.machine_a, 4, 24)
+        self._optimize()
+        self.assertEqual(self.schedule.getOverlapViolations(), [])
+        area = self._valley_area()
+        peak = max(area[i] + self.schedule.getTotalPowerAtIndex(i) for i in range(96))
+        self.assertEqual(peak, 110.0)
+        # The valley is still used as well as it can be
+        self.assertEqual([self.schedule.getTotalPowerAtIndex(i) for i in range(20, 24)],
+                         [10.0] * 4)
+
+    def test_optimizer_fixes_an_existing_overlap(self):
+        a = self.add(self.machine_a, 4, 30)
+        b = process.process(self.machine_a, 4)
+        self.schedule.processTimeline.append({"startIndex": 32, "process": b})
+        optimize.optimize(
+            self.schedule, FakeAreaSchedule([0.0] * 96), self.company
+        ).optimize_schedule("test-day")
+        self.assertEqual(self.schedule.getOverlapViolations(), [])
+        self.assertTrue(self.schedule.getEnd(a) <= self.schedule.getStart(b)
+                        or self.schedule.getEnd(b) <= self.schedule.getStart(a))
+
+    def test_optimizer_refuses_overlapping_fixed_processes(self):
+        foreign = machine.machine(5, "foreign")
+        self.schedule.processTimeline += [
+            {"startIndex": 10, "process": process.process(foreign, 4)},
+            {"startIndex": 12, "process": process.process(foreign, 4)},
+        ]
+        with self.assertRaisesRegex(RuntimeError, "same time"):
+            self._optimize()
+
+    def test_conflicting_constraints_are_reported(self):
+        # The factory opens at 04:00 and both processes on A have to be
+        # finished by 05:00, so both can only run 04:00-05:00.
+        self.schedule.workingHours = self.company.workingHours
+        self.company.workingHours.set(16, 96)
+        first = process.process(self.machine_a, 4, deadline=20)
+        self.schedule.addProcess(first, 16)
+        second = self.add(self.machine_a, 4, 20)
+        second.setDeadline(20)                     # late, has to move
+        with self.assertRaisesRegex(RuntimeError, "machine availability"):
+            self._optimize()
+        self.assertEqual(self.schedule.getStart(first), 16)
+        self.assertEqual(self.schedule.getStart(second), 20)
 
 
 if __name__ == "__main__":

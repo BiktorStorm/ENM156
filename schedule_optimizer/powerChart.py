@@ -1,6 +1,8 @@
 import math
 import tkinter as tk
 
+import theme
+
 # Power chart drawn directly on a Tk Canvas. #
 #
 # Tk draws canvas shapes and text natively, so the chart stays sharp on
@@ -22,22 +24,20 @@ import tkinter as tk
 # waits for.
 #
 # Time outside the working hours (and lunch) is shaded, processes may only be
-# dragged to starts inside them (block["allowedStarts"]).
+# dragged to valid starts (block["allowedStarts"]: inside the working hours,
+# by the deadline and while the machine is free). A selected process with a
+# deadline gets a dashed "Due" line.
+#
+# Optimisation proposal: ghosts are the processes the proposal would move,
+# drawn as dashed outlines at their proposed position. Those processes are
+# stacked last so the ghosts sit on the same base (area + processes that
+# stay) and the top of a ghost is the proposed total load.
 
 QUARTERS_PER_DAY = 96
 
-CARD = "#ffffff"
-BORDER = "#dfe2e7"
-GRID = "#eceef2"
-TEXT = "#1f2430"
-MUTED = "#6b7280"
-DANGER = "#d64545"
-AREA = "#c5cfdc"
-BLOCKED = "#eef0f4"
-CLOSED = "#e9ebef"
-
-FONT = ("Helvetica", 11)
-FONT_BOLD = ("Helvetica", 11, "bold")
+# Colours come from a theme palette (theme.LIGHT / theme.DARK), see setTheme
+FONT = theme.font(11)
+FONT_BOLD = theme.font(11, "bold")
 
 
 def quarterToLabel(index: int) -> str:
@@ -45,7 +45,7 @@ def quarterToLabel(index: int) -> str:
     return f"{minutes // 60:02d}:{minutes % 60:02d}"
 
 
-def blend(color: str, amount: float, base: str = CARD) -> str:
+def blend(color: str, amount: float, base: str = "#ffffff") -> str:
     """Mixes color towards base. amount=0 -> color, amount=1 -> base."""
     c = [int(color[i:i + 2], 16) for i in (1, 3, 5)]
     b = [int(base[i:i + 2], 16) for i in (1, 3, 5)]
@@ -71,7 +71,8 @@ class PowerChart(tk.Canvas):
 
     def __init__(self, parent, onClick=None, onHover=None, onSelect=None,
                  onMove=None, onRemove=None, **kwargs):
-        super().__init__(parent, bg=CARD, highlightthickness=0, **kwargs)
+        self.c: dict = dict(theme.LIGHT)   # colours of the current theme
+        super().__init__(parent, bg=self.c["card"], highlightthickness=0, **kwargs)
         self.onClick = onClick      # called with the clicked quarter index
         self.onHover = onHover      # called with a row dict, or None on leave
         self.onSelect = onSelect    # called with a process id, or None
@@ -87,9 +88,12 @@ class PowerChart(tk.Canvas):
         self.preview: dict | None = None
         self.colorFor = lambda name: "#2f6fde"
         self.hours: dict | None = None
+        self.ghosts: list[dict] = []
 
         # segments[quarter] = list of (bottomKW, topKW, block) for processes
         self.segments: list[list[tuple]] = []
+        # the same for ghosts of the optimisation proposal
+        self.ghostSegments: list[list[tuple]] = []
         self.yMax = 1.0
 
         self.bind("<Configure>", lambda _: self.redraw())
@@ -106,19 +110,27 @@ class PowerChart(tk.Canvas):
 
     def setData(self, rows: list[dict], blocks: list[dict],
                 maxCap: float | None, preview: dict | None, colorFor,
-                hours: dict | None = None):
+                hours: dict | None = None, ghosts: list[dict] | None = None):
         """rows: combined profile, blocks: process blocks,
         preview: {"name", "kW", "startIndex", "endIndex"} or None,
-        hours: working hours from GUIinstance.getWorkingHours() or None."""
+        hours: working hours from GUIinstance.getWorkingHours() or None,
+        ghosts: blocks of the optimisation proposal (same ids as blocks)."""
         self.hours = hours
         self.rows = rows
         self.blocks = blocks
         self.maxCap = maxCap
         self.preview = preview
         self.colorFor = colorFor
+        self.ghosts = sorted(ghosts or [], key=lambda g: g["startIndex"])
         self.drag = None
         if self.selectedId not in {b["id"] for b in blocks}:
             self.selectedId = None
+        self.redraw()
+
+    def setTheme(self, colors: dict):
+        """Switches to another palette (theme.LIGHT / theme.DARK)."""
+        self.c = dict(colors)
+        self.configure(bg=self.c["card"])
         self.redraw()
 
     def setSelected(self, processId: int | None):
@@ -176,15 +188,29 @@ class PowerChart(tk.Canvas):
             return
         if not self.rows:
             self.create_text((left + right) / 2, (top + bottom) / 2,
-                             text="No data", fill=MUTED, font=FONT)
+                             text="No data", fill=self.c["muted"], font=FONT)
             return
 
         stackTop = [row["areaKW"] for row in self.rows]
         self.segments = [[] for _ in self.rows]
-        for block in self.displayBlocks():
+        ghostIds = {g["id"] for g in self.ghosts}
+        # Processes that stay first, processes the proposal moves last
+        # (sorted() is stable, so start order is kept within each group)
+        ordered = sorted(self.displayBlocks(), key=lambda b: b["id"] in ghostIds)
+        ghostBase = None
+        for block in ordered:
+            if ghostBase is None and block["id"] in ghostIds:
+                ghostBase = list(stackTop)
             for q in range(block["startIndex"], min(block["endIndex"], len(self.rows))):
                 self.segments[q].append((stackTop[q], stackTop[q] + block["kW"], block))
                 stackTop[q] += block["kW"]
+
+        ghostTop = list(stackTop if ghostBase is None else ghostBase)
+        self.ghostSegments = [[] for _ in self.rows]
+        for ghost in self.ghosts:
+            for q in range(ghost["startIndex"], min(ghost["endIndex"], len(self.rows))):
+                self.ghostSegments[q].append((ghostTop[q], ghostTop[q] + ghost["kW"], ghost))
+                ghostTop[q] += ghost["kW"]
 
         previewTop = list(stackTop)
         if self.preview:
@@ -192,7 +218,7 @@ class PowerChart(tk.Canvas):
                            min(self.preview["endIndex"], len(self.rows))):
                 previewTop[q] += self.preview["kW"]
 
-        highest = max(previewTop + [self.maxCap or 0])
+        highest = max(previewTop + ghostTop + [self.maxCap or 0])
         step = niceStep(highest * 1.1 or 1)
         self.yMax = math.ceil(highest * 1.1 / step) * step or step
 
@@ -201,7 +227,9 @@ class PowerChart(tk.Canvas):
         self.drawOverCapacity(top, bottom)
         self.drawGrid(step, left, right, top, bottom)
         self.drawBars()
+        self.drawGhosts()
         self.drawPreview(stackTop)
+        self.drawDeadline(top, bottom)
         self.drawDependencyArrows()
         self.drawCapacity(left, right)
         self.drawXAxis(left, right, bottom)
@@ -236,9 +264,9 @@ class PowerChart(tk.Canvas):
     def drawClosedTime(self, top, bottom):
         for start, end, label in self.closedRanges():
             x0, x1 = self.xOf(start), self.xOf(end)
-            self.create_rectangle(x0, top, x1, bottom, fill=CLOSED, outline="")
+            self.create_rectangle(x0, top, x1, bottom, fill=self.c["closed"], outline="")
             textId = self.create_text((x0 + x1) / 2, top + 4, text=label,
-                                      anchor=tk.N, fill=MUTED, font=FONT)
+                                      anchor=tk.N, fill=self.c["muted"], font=FONT)
             # Hide the label if the stretch is too narrow for it
             x0t, _, x1t, _ = self.bbox(textId)
             if x1t - x0t > x1 - x0 - 4:
@@ -253,7 +281,7 @@ class PowerChart(tk.Canvas):
         for start, end in ((0, allowedFrom), (allowedTo, QUARTERS_PER_DAY)):
             if end > start:
                 self.create_rectangle(self.xOf(start), top, self.xOf(end), bottom,
-                                      fill=BLOCKED, outline="")
+                                      fill=self.c["blocked"], outline="")
 
     def blockById(self, blockId: int) -> dict | None:
         return next((b for b in self.displayBlocks() if b["id"] == blockId), None)
@@ -283,51 +311,90 @@ class PowerChart(tk.Canvas):
             ym = max(min(y0, y1) - lift, top - 10)
             ok = selected["startIndex"] >= dep["endIndex"]
             self.create_line(x0, y0, (x0 + x1) / 2, ym, x1, y1, smooth=True,
-                             arrow=tk.LAST, width=1.5, fill=TEXT if ok else DANGER)
+                             arrow=tk.LAST, width=1.5, fill=self.c["text"] if ok else self.c["danger"])
 
     def drawOverCapacity(self, top, bottom):
         for row in self.rows:
             if row["overCapacity"]:
                 self.create_rectangle(self.xOf(row["index"]), top,
                                       self.xOf(row["index"] + 1), bottom,
-                                      fill=blend(DANGER, 0.9), outline="")
+                                      fill=self.c["overCap"], outline="")
 
     def drawGrid(self, step, left, right, top, bottom):
         value = 0.0
         while value <= self.yMax + 1e-9:
             y = self.yOf(value)
-            self.create_line(left, y, right, y, fill=GRID if value else BORDER)
+            self.create_line(left, y, right, y, fill=self.c["grid"] if value else self.c["border"])
             self.create_text(left - 8, y, text=f"{value:g} kW", anchor=tk.E,
-                             fill=MUTED, font=FONT)
+                             fill=self.c["muted"], font=FONT)
             value += step
 
     def drawBars(self):
         for row in self.rows:
-            self.bar(row["index"], 0, row["areaKW"], AREA)
+            self.bar(row["index"], 0, row["areaKW"], self.c["area"])
         for q, segments in enumerate(self.segments):
             for low, high, block in segments:
                 self.bar(q, low, high, self.colorFor(block["machine"]),
                          tags=("process", f"block{block['id']}"))
         self.resetOutlines()
 
+    @staticmethod
+    def breaksARule(block: dict) -> bool:
+        return bool(block.get("outsideHours") or block.get("lateForDeadline")
+                    or block.get("overlapsWith"))
+
     def resetOutlines(self, hoveredId: int | None = None):
-        """Selected process gets a dark outline, hovered one a light one."""
+        """Selected process gets a dark outline, hovered one a light one.
+        Processes that break a rule get a red one."""
         self.itemconfigure("process", outline="")
         for block in self.blocks:
-            if block.get("outsideHours"):
-                self.itemconfigure(f"block{block['id']}", outline=DANGER, width=2)
+            if self.breaksARule(block):
+                self.itemconfigure(f"block{block['id']}", outline=self.c["danger"], width=2)
         if hoveredId is not None:
-            self.itemconfigure(f"block{hoveredId}", outline=MUTED, width=1)
+            self.itemconfigure(f"block{hoveredId}", outline=self.c["muted"], width=1)
         if self.selectedId is not None:
             selected = self.blockById(self.selectedId)
             for depId in (selected or {}).get("dependsOn", []):
-                self.itemconfigure(f"block{depId}", outline=TEXT, width=1)
-            self.itemconfigure(f"block{self.selectedId}", outline=TEXT, width=2)
+                self.itemconfigure(f"block{depId}", outline=self.c["text"], width=1)
+            self.itemconfigure(f"block{self.selectedId}", outline=self.c["text"], width=2)
+
+    def ghostColor(self, color: str) -> str:
+        """A darker (light theme) or lighter (dark theme) shade, visible both
+        on the background and on the solid block."""
+        return blend(color, 0.35, base=self.c["ghostBase"])
+
+    def drawGhosts(self):
+        """Dashed outline of every process at its proposed position. One
+        polygon per process that follows the stack quarter by quarter."""
+        for ghost in self.ghosts:
+            spans = [(q, low, high) for q, segments in enumerate(self.ghostSegments)
+                     for low, high, g in segments if g is ghost]
+            if not spans:
+                continue
+            topEdge, bottomEdge = [], []
+            for q, low, high in spans:
+                x0, x1 = self.xOf(q) + 1, self.xOf(q + 1) - 1
+                topEdge += [x0, self.yOf(high) + 1, x1, self.yOf(high) + 1]
+                bottomEdge = [x1, self.yOf(low) - 1, x0, self.yOf(low) - 1] + bottomEdge
+            self.create_polygon(topEdge + bottomEdge, fill="", width=2, dash=(5, 3),
+                                outline=self.ghostColor(self.colorFor(ghost["machine"])),
+                                tags=("ghost",))
+
+    def drawDeadline(self, top, bottom):
+        """Dashed line at the deadline of the selected (or dragged) process."""
+        blockId = self.drag["id"] if self.drag else self.selectedId
+        block = self.blockById(blockId) if blockId is not None else None
+        if block is None or block.get("deadlineIndex") is None:
+            return
+        x = self.xOf(block["deadlineIndex"])
+        self.create_line(x, top, x, bottom, fill=self.c["danger"], width=1.5, dash=(6, 4))
+        self.create_text(x - 4, top + 22, text=f"Due {quarterToLabel(block['deadlineIndex'])}",
+                         anchor=tk.NE, fill=self.c["danger"], font=FONT_BOLD)
 
     def drawPreview(self, stackTop):
         if not self.preview:
             return
-        color = blend(self.colorFor(self.preview["name"]), 0.6)
+        color = blend(self.colorFor(self.preview["name"]), 0.6, self.c["card"])
         for q in range(self.preview["startIndex"],
                        min(self.preview["endIndex"], len(self.rows))):
             self.bar(q, stackTop[q], stackTop[q] + self.preview["kW"], color)
@@ -336,36 +403,42 @@ class PowerChart(tk.Canvas):
         if self.maxCap is None:
             return
         y = self.yOf(self.maxCap)
-        self.create_line(left, y, right, y, fill=DANGER, width=1.5, dash=(6, 4))
+        self.create_line(left, y, right, y, fill=self.c["danger"], width=1.5, dash=(6, 4))
         self.create_text(right, y - 4, text=f"Max {self.maxCap:g} kW",
-                         anchor=tk.SE, fill=DANGER, font=FONT_BOLD)
+                         anchor=tk.SE, fill=self.c["danger"], font=FONT_BOLD)
 
     def drawXAxis(self, left, right, bottom):
         for hour in range(0, 25):
             x = self.xOf(hour * 4)
             major = hour % 2 == 0
-            self.create_line(x, bottom, x, bottom + (6 if major else 3), fill=MUTED)
+            self.create_line(x, bottom, x, bottom + (6 if major else 3), fill=self.c["muted"])
             if major:
                 self.create_text(x, bottom + 8, text=f"{hour:02d}:00", anchor=tk.N,
-                                 fill=MUTED, font=FONT)
+                                 fill=self.c["muted"], font=FONT)
 
     def drawLegend(self, left, top):
-        items = [("Area forecast", AREA)]
+        items = [("Area forecast", self.c["area"])]
         if self.closedRanges():
-            items.append(("Closed", CLOSED))
+            items.append(("Closed", self.c["closed"]))
         seen = set()
         for block in self.blocks:
             if block["machine"] not in seen:
                 seen.add(block["machine"])
                 items.append((block["machine"], self.colorFor(block["machine"])))
         if self.preview:
-            items.append(("Preview", blend(self.colorFor(self.preview["name"]), 0.6)))
+            items.append(("Preview", blend(self.colorFor(self.preview["name"]), 0.6, self.c["card"])))
+        if self.ghosts:
+            items.append(("Proposed", None))
 
         x, y = left, top - 24
         for label, color in items:
-            self.create_rectangle(x, y - 6, x + 12, y + 6, fill=color, outline="")
+            if color is None:   # ghost: dashed outline, no fill
+                self.create_rectangle(x + 1, y - 5, x + 11, y + 5, fill="",
+                                      outline=self.c["text"], width=2, dash=(3, 2))
+            else:
+                self.create_rectangle(x, y - 6, x + 12, y + 6, fill=color, outline="")
             textId = self.create_text(x + 18, y, text=label, anchor=tk.W,
-                                      fill=TEXT, font=FONT)
+                                      fill=self.c["text"], font=FONT)
             x = self.bbox(textId)[2] + 18
 
     # ----------------------------- Cursor ---------------------------- #
@@ -388,32 +461,54 @@ class PowerChart(tk.Canvas):
         kW = self.kWAt(event.y)
         left, _, right, _ = self.plotBox()
         x = self.xOf(quarter + 0.5)
-        self.create_line(x, top, x, bottom, fill=TEXT, dash=(2, 3), tags="cursor")
-        self.create_line(left, event.y, right, event.y, fill=TEXT, dash=(2, 3),
+        self.create_line(x, top, x, bottom, fill=self.c["text"], dash=(2, 3), tags="cursor")
+        self.create_line(left, event.y, right, event.y, fill=self.c["text"], dash=(2, 3),
                          tags="cursor")
 
         lines = [f"{quarterToLabel(quarter)}–{quarterToLabel(quarter + 1)}   {kW:.1f} kW"]
         if not self.isWorking(quarter):
             lines.append("Outside working hours")
         hovered = self.blockAt(quarter, kW)
+        ghost = self.ghostAt(quarter, kW)
         self.resetOutlines(hovered["id"] if hovered else None)
-        self.configure(cursor="hand2" if hovered else "crosshair")
+        self.configure(cursor="hand2" if hovered or ghost else "crosshair")
         if hovered:
             lines.append(f"#{hovered['id'] + 1} {hovered['machine']}  ·  "
                          f"{hovered['kW']:g} kW  ·  "
                          f"{hovered['startTime']}–{hovered['endTime']}")
-            if hovered.get("outsideHours"):
-                lines.append("Runs outside the working hours")
-            deps = [self.blockById(d) for d in hovered.get("dependsOn", [])]
-            if deps:
-                lines.append("After " + ", ".join(
-                    f"#{d['id'] + 1} {d['machine']}" for d in deps if d))
+            lines += self.blockNotes(hovered)
+            proposed = next((g for g in self.ghosts if g["id"] == hovered["id"]), None)
+            if proposed and proposed is not ghost:
+                lines.append(f"Proposed: move to {proposed['startTime']}–{proposed['endTime']}")
         elif kW <= self.rows[quarter]["areaKW"]:
             lines.append(f"Area forecast  ·  {self.rows[quarter]['areaKW']:.1f} kW")
+        if ghost:
+            lines.append(f"Proposed: #{ghost['id'] + 1} {ghost['machine']}  "
+                         f"{ghost['fromStartTime']}–{ghost['fromEndTime']} → "
+                         f"{ghost['startTime']}–{ghost['endTime']}")
         self.drawTooltip(event.x, event.y, "\n".join(lines))
 
         if self.onHover:
             self.onHover(self.rows[quarter])
+
+    def blockNotes(self, block: dict) -> list[str]:
+        """Tooltip lines about the rules a process has to keep."""
+        lines = []
+        if block.get("deadline"):
+            lines.append(f"Due by {block['deadline']}")
+        if block.get("lateForDeadline"):
+            lines.append("Ends after its deadline")
+        if block.get("outsideHours"):
+            lines.append("Runs outside the working hours")
+        elif block.get("pastHours"):
+            lines.append("Runs past the working hours (allowed for this machine)")
+        for otherId in block.get("overlapsWith", []):
+            lines.append(f"Runs at the same time as #{otherId + 1} on the same machine")
+        deps = [self.blockById(d) for d in block.get("dependsOn", [])]
+        if deps:
+            lines.append("After " + ", ".join(
+                f"#{d['id'] + 1} {d['machine']}" for d in deps if d))
+        return lines
 
     def blockAt(self, quarter: int, kW: float) -> dict | None:
         if quarter >= len(self.segments):
@@ -423,9 +518,17 @@ class PowerChart(tk.Canvas):
                 return block
         return None
 
+    def ghostAt(self, quarter: int, kW: float) -> dict | None:
+        if quarter >= len(self.ghostSegments):
+            return None
+        for low, high, ghost in self.ghostSegments[quarter]:
+            if low <= kW < high:
+                return ghost
+        return None
+
     def drawTooltip(self, x, y, text):
         textId = self.create_text(x + 14, y - 14, text=text, anchor=tk.SW,
-                                  fill="white", font=FONT, tags="cursor")
+                                  fill=self.c["tooltipFg"], font=FONT, tags="cursor")
         x0, y0, x1, y1 = self.bbox(textId)
         # Flip to the other side of the mouse if it would leave the chart
         dx = -(x1 - x0) - 28 if x1 + 8 > self.winfo_width() else 0
@@ -433,7 +536,7 @@ class PowerChart(tk.Canvas):
         self.move(textId, dx, dy)
         x0, y0, x1, y1 = self.bbox(textId)
         boxId = self.create_rectangle(x0 - 8, y0 - 5, x1 + 8, y1 + 5,
-                                      fill=TEXT, outline="", tags="cursor")
+                                      fill=self.c["tooltipBg"], outline="", tags="cursor")
         self.tag_lower(boxId, textId)
 
     # ------------------------- Click and drag ----------------------- #
@@ -449,7 +552,13 @@ class PowerChart(tk.Canvas):
         if block is None:
             self.drag = None
             quarter = self.quarterAt(event.x)
-            if quarter is not None and self.onClick:
+            ghost = self.ghostAt(quarter, self.kWAt(event.y)) if quarter is not None else None
+            if ghost is not None:
+                # A ghost cannot be dragged, clicking it selects its process
+                self.setSelected(ghost["id"])
+                if self.onSelect:
+                    self.onSelect(ghost["id"])
+            elif quarter is not None and self.onClick:
                 self.onClick(quarter)
             return
         self.drag = {"id": block["id"],
@@ -460,6 +569,7 @@ class PowerChart(tk.Canvas):
                      "minStart": block.get("minStart", 0),
                      "maxStart": block.get("maxStart", QUARTERS_PER_DAY
                                            - (block["endIndex"] - block["startIndex"])),
+                     "deadline": block.get("deadlineIndex"),
                      "allowed": block.get("allowedStarts")}
         self.setSelected(block["id"])
 
@@ -485,7 +595,11 @@ class PowerChart(tk.Canvas):
         end = newStart + self.drag["duration"]
         text = f"Move to {quarterToLabel(newStart)}–{quarterToLabel(end)}"
         lastStart = QUARTERS_PER_DAY - self.drag["duration"]
-        if (newStart == self.drag["minStart"] > 0) or (
+        deadline = self.drag["deadline"]
+        if (newStart == self.drag["maxStart"] < lastStart and deadline is not None
+                and end == deadline):
+            text += f"\nLimited by the deadline {quarterToLabel(deadline)}"
+        elif (newStart == self.drag["minStart"] > 0) or (
                 newStart == self.drag["maxStart"] < lastStart):
             text += "\nLimited by dependencies"
         self.drawTooltip(event.x, event.y, text)
