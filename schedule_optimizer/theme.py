@@ -32,8 +32,10 @@ LIGHT = {
     "border": "#e1e6ee",
     "text": "#172033",
     "muted": "#66708a",
-    "input": "#ffffff",
+    "input": "#f1f3f8",         # input fields, filled instead of outlined
     "select": "#e4e2fd",        # selected table row
+    "control": "#e8ebf2",       # secondary buttons, empty check boxes
+    "controlHover": "#dddff9",
     "accent": "#5850ec",
     "accentHover": "#4a42d6",
     "accentSoft": "#ebeafd",
@@ -67,8 +69,10 @@ DARK = {
     "border": "#273042",
     "text": "#e6e9f2",
     "muted": "#98a2b8",
-    "input": "#1d2433",
+    "input": "#1f2636",
     "select": "#2d2a5e",
+    "control": "#252d3e",
+    "controlHover": "#2f2d5c",
     "accent": "#7c74ff",
     "accentHover": "#8f88ff",
     "accentSoft": "#24224a",

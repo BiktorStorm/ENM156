@@ -27,7 +27,7 @@ from powerChart import PowerChart, quarterToLabel
 # is accepted. Rejecting it (or changing the schedule) throws it away.
 #
 # Colours come from theme.py. Settings (⚙ in the top bar) switch between
-# light mode, dark mode and following the system. The ⓘ icons open a small
+# light mode, dark mode and following the system. The info badges open a small
 # box with help text, a click anywhere (or Esc) closes it. Rounded corners
 # come from rounded.py (needs Pillow, square corners without it).
 
@@ -43,11 +43,11 @@ FONT_CARD_TITLE = theme.font(13, "bold")
 FONT_TITLE = theme.font(17, "bold")
 FONT_STAT = theme.font(20, "bold")
 
-# Stat tiles: key, name, icon, palette colour of the stripe and icon
-STAT_TILES = [("peak", "Peak power", "⚡", "accent"),
-              ("peakTime", "Peak at", "◷", "warning"),
-              ("own", "Own energy", "∑", "success"),
-              ("over", "Quarters over cap.", "⚠", "danger")]
+# Stat tiles: key, name, palette colour of the stripe
+STAT_TILES = [("peak", "Peak power", "accent"),
+              ("peakTime", "Peak at", "warning"),
+              ("own", "Own energy", "success"),
+              ("over", "Quarters over cap.", "danger")]
 
 INFO_AFTER_HOURS = (
     "After-hours machines must start within the working hours, but may then "
@@ -61,7 +61,7 @@ INFO_NEW_PROCESS = (
     "A machine runs one process at a time, so overlapping processes on the "
     "same machine are refused.")
 INFO_PROCESSES = (
-    "Select a process to edit it. ◀ ▶ move it 15 minutes, or drag it in the "
+    "Select a process to edit it. Earlier / Later move it 15 minutes, or drag it in the "
     "chart.\n\nBlue rows would be moved by the current optimisation "
     "proposal. Red rows break a rule: outside the working hours, after their "
     "deadline or at the same time as another process on the machine.")
@@ -175,20 +175,18 @@ class App(tk.Tk):
                         selectforeground=c["text"], insertcolor=c["text"],
                         focuscolor=c["accent"])
         style.configure("Root.TFrame", background=c["bg"])
-        style.configure("Card.TFrame", background=c["card"], relief="solid",
-                        borderwidth=1, bordercolor=c["border"])
+        style.configure("Card.TFrame", background=c["card"])
         style.configure("Flat.TFrame", background=c["card"], relief="flat", borderwidth=0)
         style.configure("Card.TLabel", background=c["card"], foreground=c["text"])
         style.configure("CardTitle.TLabel", background=c["card"], foreground=c["text"],
                         font=FONT_CARD_TITLE)
-        style.configure("CardIcon.TLabel", background=c["card"], foreground=c["accent"],
-                        font=FONT_CARD_TITLE)
+        style.configure("TitleBar.TFrame", background=c["accent"])
         style.configure("Muted.TLabel", background=c["card"], foreground=c["muted"],
                         font=FONT_SMALL)
         style.configure("Field.TLabel", background=c["card"], foreground=c["muted"],
                         font=FONT_SMALL)
         style.configure("Info.TLabel", background=c["card"], foreground=c["accent"],
-                        font=theme.font(14))
+                        font=FONT_SMALL_BOLD)
         style.configure("Status.TLabel", background=c["card"], foreground=c["muted"],
                         font=FONT_SMALL)
         style.configure("Cursor.TLabel", background=c["bg"], foreground=c["muted"],
@@ -198,8 +196,7 @@ class App(tk.Tk):
         style.configure("Header.TFrame", background=c["header"])
         style.configure("Header.TLabel", background=c["header"],
                         foreground=c["headerText"], font=FONT_TITLE)
-        style.configure("HeaderIcon.TLabel", background=c["header"],
-                        foreground=c["warning"], font=FONT_TITLE)
+        style.configure("HeaderMark.TFrame", background=c["warning"])
         style.configure("HeaderMuted.TLabel", background=c["header"],
                         foreground=c["headerMuted"], font=FONT)
 
@@ -212,46 +209,22 @@ class App(tk.Tk):
                         font=FONT_SMALL_BOLD)
         style.configure("Loss.TLabel", background=c["card"], foreground=c["danger"],
                         font=FONT_SMALL_BOLD)
-        for key, _, _, colorKey in STAT_TILES:
+        for key, _, colorKey in STAT_TILES:
             style.configure(f"{key}.Stripe.TFrame", background=c[colorKey])
-            style.configure(f"{key}.StatIcon.TLabel", background=c["card"],
-                            foreground=c[colorKey], font=theme.font(14, "bold"))
 
         # Optimisation proposal bar
-        style.configure("Proposal.TFrame", background=c["accentSoft"], relief="solid",
-                        borderwidth=1, bordercolor=c["accent"])
+        style.configure("Proposal.TFrame", background=c["accentSoft"])
         style.configure("Proposal.TLabel", background=c["accentSoft"],
                         foreground=c["text"], font=FONT_BOLD)
-        style.configure("ProposalIcon.TLabel", background=c["accentSoft"],
-                        foreground=c["accent"], font=FONT_CARD_TITLE)
 
-        # Buttons: flat, coloured by role
-        def button(name, bg, fg, hover, hoverFg=None, border=None, padding=(12, 6)):
-            style.configure(name, background=bg, foreground=fg, bordercolor=border or bg,
-                            lightcolor=bg, darkcolor=bg, focuscolor=bg, relief="flat",
-                            padding=padding, font=FONT)
-            style.map(name,
-                      background=[("disabled", c["cardAlt"]), ("pressed", hover),
-                                  ("active", hover)],
-                      lightcolor=[("pressed", hover), ("active", hover)],
-                      darkcolor=[("pressed", hover), ("active", hover)],
-                      bordercolor=[("active", border or hover)],
-                      foreground=[("disabled", c["muted"]),
-                                  ("active", hoverFg or fg), ("pressed", hoverFg or fg)])
-        button("TButton", c["cardAlt"], c["text"], c["accentSoft"], border=c["border"])
-        button("Small.TButton", c["cardAlt"], c["text"], c["accentSoft"],
-               border=c["border"], padding=(6, 4))
-        button("Accent.TButton", c["accent"], c["onAccent"], c["accentHover"])
-        button("Success.TButton", c["success"], c["onAccent"], c["successHover"])
-        button("Danger.TButton", c["dangerSoft"], c["danger"], c["danger"],
-               hoverFg=c["onAccent"])
-        button("Header.TButton", c["headerButton"], c["headerText"],
-               c["headerButtonHover"])
+        # Buttons, input fields and cards: colours, padding and rounded
+        # corners (see rounded.py)
+        self.rounded.apply(c, FONT)
 
         # Check and radio buttons
         for name in ("Card.TCheckbutton", "Card.TRadiobutton"):
             style.configure(name, background=c["card"], foreground=c["text"],
-                            indicatorbackground=c["input"], indicatorforeground=c["onAccent"],
+                            indicatorbackground=c["control"], indicatorforeground=c["onAccent"],
                             indicatormargin=(0, 0, 6, 0), focuscolor=c["card"],
                             bordercolor=c["border"], upperbordercolor=c["border"],
                             lowerbordercolor=c["border"])
@@ -261,39 +234,36 @@ class App(tk.Tk):
                       foreground=[("disabled", c["muted"])])
 
         # Inputs
-        for widget in ("TEntry", "TCombobox", "TSpinbox"):
+        # Inputs: flat filled fields, the fill must not change with the
+        # state or it would no longer match the rounded corners
+        for widget in ("TEntry", "TCombobox", "Header.TCombobox", "TSpinbox"):
             style.configure(widget, fieldbackground=c["input"], foreground=c["text"],
-                            background=c["cardAlt"], bordercolor=c["border"],
-                            lightcolor=c["input"], darkcolor=c["input"],
-                            arrowcolor=c["muted"], padding=5, insertcolor=c["text"],
-                            insertwidth=1, selectbackground=c["select"],
-                            selectforeground=c["text"])
-            style.map(widget, bordercolor=[("focus", c["accent"])],
-                      lightcolor=[("focus", c["accent"])],
-                      background=[("active", c["accentSoft"])],
+                            bordercolor=c["input"], lightcolor=c["input"],
+                            darkcolor=c["input"], arrowcolor=c["muted"],
+                            insertcolor=c["text"], insertwidth=1,
+                            selectbackground=c["select"], selectforeground=c["text"])
+            style.map(widget, fieldbackground=[("readonly", c["input"])],
+                      foreground=[("readonly", c["text"])],
+                      selectbackground=[("readonly", c["input"])],
+                      selectforeground=[("readonly", c["text"])],
                       arrowcolor=[("active", c["accent"])])
-        style.map("TCombobox", fieldbackground=[("readonly", c["input"])],
-                  foreground=[("readonly", c["text"])],
-                  selectbackground=[("readonly", c["input"])],
-                  selectforeground=[("readonly", c["text"])],
-                  bordercolor=[("focus", c["accent"])],
-                  background=[("active", c["accentSoft"])],
-                  arrowcolor=[("active", c["accent"])])
         # Drop-down lists of comboboxes (plain tk listboxes)
         for option, key in (("background", "input"), ("foreground", "text"),
                             ("selectBackground", "accent"), ("selectForeground", "onAccent")):
             self.option_add(f"*TCombobox*Listbox.{option}", c[key])
         self.option_add("*TCombobox*Listbox.font", FONT)
 
-        # Scrollbars
+        # Scrollbars: slim and flat, no arrow buttons
         for name, trough in (("Vertical.TScrollbar", c["card"]),
-                             ("Horizontal.TScrollbar", c["card"]),
                              ("Root.Vertical.TScrollbar", c["bg"])):
+            style.layout(name, [("Vertical.Scrollbar.trough", {"sticky": "ns", "children": [
+                ("Vertical.Scrollbar.thumb", {"expand": "1", "sticky": "nsew"})]})])
             style.configure(name, background=c["border"], troughcolor=trough,
-                            bordercolor=trough, arrowcolor=c["muted"],
-                            lightcolor=trough, darkcolor=trough, gripcount=0,
-                            arrowsize=12)
-            style.map(name, background=[("active", c["muted"])])
+                            bordercolor=trough, lightcolor=c["border"],
+                            darkcolor=c["border"], gripcount=0, arrowsize=8)
+            style.map(name, background=[("pressed", c["muted"]), ("active", c["muted"])],
+                      lightcolor=[("pressed", c["muted"]), ("active", c["muted"])],
+                      darkcolor=[("pressed", c["muted"]), ("active", c["muted"])])
 
         # Tables
         style.configure("Treeview", background=c["card"], fieldbackground=c["card"],
@@ -306,9 +276,6 @@ class App(tk.Tk):
         style.map("Treeview.Heading", background=[("active", c["accentSoft"])])
         style.map("Treeview", background=[("selected", c["select"])],
                   foreground=[("selected", c["text"])])
-
-        # Rounded cards, buttons, fields, check boxes and scrollbars
-        self.rounded.apply(c)
 
     def applyTheme(self):
         """Applies the current palette to everything on screen."""
@@ -345,8 +312,11 @@ class App(tk.Tk):
     # -------------------------- Info popups -------------------------- #
 
     def infoButton(self, parent, text: str, title: str = "") -> ttk.Label:
-        """A ⓘ icon that opens a small box with text when clicked."""
-        icon = ttk.Label(parent, text="ⓘ", style="Info.TLabel", cursor="hand2")
+        """A small info badge that opens a box with text when clicked."""
+        image = self.rounded.infoImage()
+        icon = (ttk.Label(parent, image=image, style="Info.TLabel", cursor="hand2")
+                if image is not None else
+                ttk.Label(parent, text="(i)", style="Info.TLabel", cursor="hand2"))
         icon.bind("<Button-1>", lambda _: self.toggleInfo(icon, text, title))
         self.infoIcons.add(icon)
         return icon
@@ -375,16 +345,15 @@ class App(tk.Tk):
 
     # ---------------------------- Helpers ---------------------------- #
 
-    def card(self, parent, title: str | None = None, icon: str | None = None,
-             info: str | None = None, expand: bool = False) -> ttk.Frame:
+    def card(self, parent, title: str | None = None, info: str | None = None,
+             expand: bool = False) -> ttk.Frame:
         frame = ttk.Frame(parent, style="Card.TFrame", padding=14)
         frame.pack(fill=tk.BOTH if expand else tk.X, expand=expand, pady=(0, 12))
         if title:
             head = ttk.Frame(frame, style="Flat.TFrame")
             head.pack(fill=tk.X, pady=(0, 10))
-            if icon:
-                ttk.Label(head, text=icon, style="CardIcon.TLabel").pack(side=tk.LEFT,
-                                                                         padx=(0, 8))
+            ttk.Frame(head, style="TitleBar.TFrame", width=3).pack(
+                side=tk.LEFT, fill=tk.Y, pady=3, padx=(0, 8))
             ttk.Label(head, text=title, style="CardTitle.TLabel").pack(side=tk.LEFT)
             if info:
                 self.infoButton(head, info, title).pack(side=tk.RIGHT)
@@ -422,13 +391,14 @@ class App(tk.Tk):
     def buildHeader(self):
         bar = ttk.Frame(self, style="Header.TFrame", padding=(20, 12))
         bar.pack(side=tk.TOP, fill=tk.X)
-        ttk.Label(bar, text="⚡", style="HeaderIcon.TLabel").pack(side=tk.LEFT)
+        ttk.Frame(bar, style="HeaderMark.TFrame", width=4).pack(side=tk.LEFT, fill=tk.Y,
+                                                                 pady=4)
         ttk.Label(bar, text="Schedule optimizer", style="Header.TLabel").pack(
-            side=tk.LEFT, padx=(6, 0))
+            side=tk.LEFT, padx=(10, 0))
         ttk.Label(bar, text=self.gui.getCompanyName(), style="HeaderMuted.TLabel").pack(
             side=tk.LEFT, padx=(14, 0), pady=(4, 0))
 
-        ttk.Button(bar, text="⚙  Settings", style="Header.TButton",
+        ttk.Button(bar, text="Settings", style="Header.TButton",
                    command=self.openSettings).pack(side=tk.RIGHT)
         self.date = ttk.Combobox(bar, width=12, state="readonly", style="Header.TCombobox")
         self.date.pack(side=tk.RIGHT, padx=(0, 18))
@@ -499,7 +469,7 @@ class App(tk.Tk):
         return inner
 
     def buildMachinePanel(self, parent):
-        box = self.card(parent, "Machines", icon="▦")
+        box = self.card(parent, "Machines")
 
         # Column widths add up to less than the sidebar, Name stretches
         self.machineTable = self.scrolledTable(box, columns=("name", "kW", "hours"),
@@ -535,7 +505,7 @@ class App(tk.Tk):
     def buildProcessPanel(self, parent):
         # The form comes first so it is always visible. The process list
         # gets whatever height is left and shrinks on small windows.
-        form = self.card(parent, "New process", icon="✚", info=INFO_NEW_PROCESS)
+        form = self.card(parent, "New process", info=INFO_NEW_PROCESS)
         self.processMachine = self.formRow(
             form, "Machine", lambda p: ttk.Combobox(p, state="readonly"))
         self.processStart = self.formRow(form, "Start (HH:MM)", lambda p: ttk.Entry(p))
@@ -554,7 +524,7 @@ class App(tk.Tk):
         for widget in (self.processStart, self.processDuration, self.processDeadline):
             widget.bind("<Return>", lambda _: self.run(self.addProcess))
 
-        box = self.card(parent, "Processes", icon="☰", info=INFO_PROCESSES, expand=True)
+        box = self.card(parent, "Processes", info=INFO_PROCESSES, expand=True)
         # Buttons are packed at the bottom before the table so they never
         # get pushed out when space runs short.
         ruleRow = ttk.Frame(box, style="Flat.TFrame")
@@ -568,11 +538,11 @@ class App(tk.Tk):
 
         editRow = ttk.Frame(box, style="Flat.TFrame")
         editRow.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
-        # ◀/▶ move the selected process 15 min
-        ttk.Button(editRow, text="◀", width=2, style="Small.TButton",
+        # Earlier/Later move the selected process 15 min
+        ttk.Button(editRow, text="Earlier", style="Small.TButton",
                    command=lambda: self.run(lambda: self.nudgeSelectedProcess(-1))
                    ).pack(side=tk.LEFT)
-        ttk.Button(editRow, text="▶", width=2, style="Small.TButton",
+        ttk.Button(editRow, text="Later", style="Small.TButton",
                    command=lambda: self.run(lambda: self.nudgeSelectedProcess(1))
                    ).pack(side=tk.LEFT, padx=(4, 0))
         ttk.Button(editRow, text="Remove", style="Danger.TButton",
@@ -613,7 +583,7 @@ class App(tk.Tk):
         ttk.Button(optimRow, text="Set", command=lambda: self.run(self.setMaxCapacity)
                    ).pack(side=tk.LEFT, padx=(6, 0))
 
-        ttk.Button(optimRow, text="✦  Optimize day", style="Accent.TButton",
+        ttk.Button(optimRow, text="Optimize day", style="Accent.TButton",
                    command=lambda: self.run(self.optimizeDay)).pack(side=tk.RIGHT)
         self.infoButton(optimRow, INFO_MAX_SHIFT, "Max shift").pack(side=tk.RIGHT,
                                                                     padx=(0, 12))
@@ -654,13 +624,11 @@ class App(tk.Tk):
         # Shown below the tools while an optimisation proposal waits for
         # Accept or Reject (see showProposalBar)
         self.proposalBar = ttk.Frame(parent, style="Proposal.TFrame", padding=(12, 8))
-        ttk.Button(self.proposalBar, text="✕  Reject", style="Proposal.TButton",
+        ttk.Button(self.proposalBar, text="Reject", style="Proposal.TButton",
                    command=lambda: self.run(self.rejectOptimization)).pack(side=tk.RIGHT)
-        ttk.Button(self.proposalBar, text="✓  Accept", style="Success.TButton",
+        ttk.Button(self.proposalBar, text="Accept", style="Success.TButton",
                    command=lambda: self.run(self.acceptOptimization)
                    ).pack(side=tk.RIGHT, padx=(0, 6))
-        ttk.Label(self.proposalBar, text="✦", style="ProposalIcon.TLabel").pack(
-            side=tk.LEFT, padx=(0, 8))
         self.proposalText = tk.StringVar()
         ttk.Label(self.proposalBar, textvariable=self.proposalText,
                   style="Proposal.TLabel").pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -669,7 +637,7 @@ class App(tk.Tk):
         stats = ttk.Frame(parent, style="Root.TFrame")
         stats.pack(fill=tk.X, pady=(12, 0))
         self.statValues: dict[str, tk.StringVar] = {}
-        for index, (key, name, icon, _) in enumerate(STAT_TILES):
+        for index, (key, name, _) in enumerate(STAT_TILES):
             tile = ttk.Frame(stats, style="Card.TFrame", padding=(12, 10))
             # fill BOTH: all tiles as tall as the Peak power tile
             tile.pack(side=tk.LEFT, fill=tk.BOTH, expand=True,
@@ -679,11 +647,7 @@ class App(tk.Tk):
                 side=tk.LEFT, fill=tk.Y, pady=2)
             inner = ttk.Frame(tile, style="Flat.TFrame", padding=(12, 0, 0, 0))
             inner.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-            top = ttk.Frame(inner, style="Flat.TFrame")
-            top.pack(fill=tk.X)
-            ttk.Label(top, text=icon, style=f"{key}.StatIcon.TLabel").pack(side=tk.LEFT,
-                                                                           padx=(0, 6))
-            ttk.Label(top, text=name, style="StatName.TLabel").pack(side=tk.LEFT)
+            ttk.Label(inner, text=name, style="StatName.TLabel").pack(anchor=tk.W)
             self.statValues[key] = tk.StringVar(value="–")
             ttk.Label(inner, textvariable=self.statValues[key],
                       style="StatValue.TLabel").pack(anchor=tk.W, pady=(2, 0))
@@ -694,7 +658,7 @@ class App(tk.Tk):
                                                  style="StatName.TLabel")
                 self.peakChangeLabel.pack(anchor=tk.W)
 
-        chartCard = self.card(parent, "Power over the day", icon="◢", info=INFO_CHART,
+        chartCard = self.card(parent, "Power over the day", info=INFO_CHART,
                               expand=True)
         chartCard.pack_configure(pady=(12, 0))
         self.chart = PowerChart(chartCard, onClick=self.onChartClick,
@@ -741,7 +705,7 @@ class App(tk.Tk):
         machines = self.gui.getMachines()
         for m in machines:
             self.machineTable.insert("", tk.END, iid=m["name"], values=(
-                m["name"], f"{m['kW']:g}", "☑" if m["allowOutsideHours"] else "☐"))
+                m["name"], f"{m['kW']:g}", "Yes" if m["allowOutsideHours"] else "No"))
             self.colorFor(m["name"])
         kept = [name for name in selected if self.machineTable.exists(name)]
         if kept:
@@ -961,6 +925,12 @@ class App(tk.Tk):
     # day again never moves a process further than the max shift.
 
     def optimizeDay(self):
+        try:
+            self.proposeOptimization()
+        finally:
+            self.configure(cursor="")
+
+    def proposeOptimization(self):
         date, horizon = self.date.get(), self.horizon.get()
         if not date:
             raise ValueError("Pick a date first")
@@ -969,6 +939,10 @@ class App(tk.Tk):
         flex = int(self.optimFlex.get())
         self.gui.setOptimFlex(flex)
         self.previewIndex = None
+        # Solving takes up to a second: show that something is happening
+        self.status.set(f"Optimizing {date}…")
+        self.configure(cursor="watch")
+        self.update_idletasks()
         try:
             proposal = self.gui.previewOptimization(date, horizon)
         except Exception:
@@ -1128,7 +1102,7 @@ class App(tk.Tk):
 
 
 class InfoPopup(tk.Toplevel):
-    """A small borderless box with help text, shown below its ⓘ icon."""
+    """A small borderless box with help text, shown below its info badge."""
 
     def __init__(self, app: App, icon: tk.Widget, text: str, title: str = ""):
         super().__init__(app)

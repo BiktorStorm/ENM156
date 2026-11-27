@@ -14,6 +14,8 @@ class schedule:
         # Optimisation proposal waiting to be accepted or rejected, see
         # "Optimisation preview" below
         self.preview: dict | None = None
+        # (key, result) of the last getPreview, see there
+        self.previewCache: tuple | None = None
 
     def getPrivateProfile(self) -> list[float]:
         """Power (kW) used by the company's own processes for every quarter of the day."""
@@ -140,9 +142,11 @@ class schedule:
             raise ValueError("The proposal does not match the current schedule")
         self.preview = {"schedule": proposed, "date": str(date),
                         "horizon": horizon, "base": self.startSnapshot()}
+        self.previewCache = None
 
     def clearPreview(self):
         self.preview = None
+        self.previewCache = None
 
     def startSnapshot(self) -> list[tuple]:
         return [(entry["process"], entry["startIndex"])
@@ -166,11 +170,17 @@ class schedule:
         before/after: day summaries of the real and the proposed schedule.
         peakReductionKW: before peak - after peak (negative = higher peak)."""
         if not self.isPreviewCurrent():
-            self.preview = None
+            self.clearPreview()
             return None
         if date is not None and (str(date), horizon) != (
                 self.preview["date"], self.preview["horizon"]):
             return None
+        # The GUI asks for the same proposal several times per repaint. A
+        # result can be reused while it is the same proposal (any change
+        # to the schedule or its rules replaces or drops it) and max cap.
+        key = (id(self.preview), self.private.maxCap)
+        if self.previewCache is not None and self.previewCache[0] == key:
+            return self.previewCache[1]
 
         proposed = self.preview["schedule"]
         proposed.maxCap = self.private.maxCap
@@ -189,10 +199,12 @@ class schedule:
         date, horizon = self.preview["date"], self.preview["horizon"]
         before = self.getDaySummary(date, horizon)
         after = proposedView.getDaySummary(date, horizon)
-        return {"date": date, "horizon": horizon,
-                "blocks": moved, "movedIds": [b["id"] for b in moved],
-                "before": before, "after": after,
-                "peakReductionKW": before["peakTotalKW"] - after["peakTotalKW"]}
+        result = {"date": date, "horizon": horizon,
+                  "blocks": moved, "movedIds": [b["id"] for b in moved],
+                  "before": before, "after": after,
+                  "peakReductionKW": before["peakTotalKW"] - after["peakTotalKW"]}
+        self.previewCache = (key, result)
+        return result
 
     def acceptPreview(self) -> dict:
         """Moves the processes to the proposed starts and drops the proposal.
@@ -220,11 +232,11 @@ class schedule:
         if late or clash:
             for entry, old in zip(timeline, oldStarts):
                 entry["startIndex"] = old
-            self.preview = None
+            self.clearPreview()
             raise RuntimeError("The proposal breaks a deadline or puts two processes "
                                "on one machine at once, it was not applied")
 
-        self.preview = None
+        self.clearPreview()
         return result
 
     def getCombinedProfile(self, date: str | datetime.date,

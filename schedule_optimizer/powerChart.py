@@ -96,7 +96,21 @@ class PowerChart(tk.Canvas):
         self.ghostSegments: list[list[tuple]] = []
         self.yMax = 1.0
 
-        self.bind("<Configure>", lambda _: self.redraw())
+        # Performance: the plot box is cached (asking Tk for the size is a
+        # round trip), mouse events are coalesced so at most one repaint
+        # happens per pass of the event loop, and outlines and the cursor
+        # are only touched when what is under the mouse changes.
+        self._box: tuple | None = None
+        self._redrawJob = None
+        self._motionJob = None
+        self._motionXY: tuple[int, int] | None = None
+        self._dragJob = None
+        self._dragXY: tuple[int, int] | None = None
+        self._outlinedHover: int | None = None
+        self._hoverQuarter: int | None = None
+        self._cursorShape = ""
+
+        self.bind("<Configure>", self.handleConfigure)
         self.bind("<Motion>", self.handleMotion)
         self.bind("<Leave>", lambda _: self.hideCursor())
         self.bind("<Button-1>", self.handlePress)
@@ -156,9 +170,25 @@ class PowerChart(tk.Canvas):
     # -------------------------- Coordinates -------------------------- #
 
     def plotBox(self):
-        width, height = self.winfo_width(), self.winfo_height()
-        return (self.MARGIN_LEFT, self.MARGIN_TOP,
-                width - self.MARGIN_RIGHT, height - self.MARGIN_BOTTOM)
+        if self._box is None:
+            width, height = self.winfo_width(), self.winfo_height()
+            self._box = (self.MARGIN_LEFT, self.MARGIN_TOP,
+                         width - self.MARGIN_RIGHT, height - self.MARGIN_BOTTOM)
+        return self._box
+
+    def handleConfigure(self, _event):
+        """Resizing: redraw once the size has settled, not for every step."""
+        self._box = None
+        self.scheduleRedraw()
+
+    def scheduleRedraw(self):
+        if self._redrawJob is None:
+            self._redrawJob = self.after_idle(self.redraw)
+
+    def setCursorShape(self, shape: str):
+        if shape != self._cursorShape:
+            self._cursorShape = shape
+            self.configure(cursor=shape)
 
     def xOf(self, quarter: float) -> float:
         left, _, right, _ = self.plotBox()
@@ -182,6 +212,11 @@ class PowerChart(tk.Canvas):
     # ---------------------------- Drawing ---------------------------- #
 
     def redraw(self):
+        if self._redrawJob is not None:
+            self.after_cancel(self._redrawJob)
+            self._redrawJob = None
+        self._box = None
+        self._outlinedHover = None
         self.delete("all")
         left, top, right, bottom = self.plotBox()
         if right - left < 50 or bottom - top < 50:
@@ -444,25 +479,46 @@ class PowerChart(tk.Canvas):
     # ----------------------------- Cursor ---------------------------- #
 
     def hideCursor(self):
+        if self._motionJob is not None:
+            self.after_cancel(self._motionJob)
+            self._motionJob = None
         self.delete("cursor")
-        self.resetOutlines()
-        self.configure(cursor="")
-        if self.onHover:
-            self.onHover(None)
+        self.setHovered(None)
+        self.setCursorShape("")
+        if self._hoverQuarter is not None:
+            self._hoverQuarter = None
+            if self.onHover:
+                self.onHover(None)
+
+    def setHovered(self, blockId: int | None):
+        """Outlines only change when the process under the mouse changes."""
+        if blockId != self._outlinedHover:
+            self._outlinedHover = blockId
+            self.resetOutlines(blockId)
 
     def handleMotion(self, event):
+        # Only remember the position; the work is done once the event queue
+        # is empty, so a burst of motion events causes a single repaint.
+        self._motionXY = (event.x, event.y)
+        if self._motionJob is None:
+            self._motionJob = self.after_idle(self.processMotion)
+
+    def processMotion(self):
+        self._motionJob = None
+        if self._motionXY is None or self.drag is not None:
+            return
+        ex, ey = self._motionXY
         self.delete("cursor")
-        quarter = self.quarterAt(event.x)
-        _, top, _, bottom = self.plotBox()
-        if quarter is None or not self.rows or not top <= event.y <= bottom:
+        quarter = self.quarterAt(ex)
+        left, top, right, bottom = self.plotBox()
+        if quarter is None or not self.rows or not top <= ey <= bottom:
             self.hideCursor()
             return
 
-        kW = self.kWAt(event.y)
-        left, _, right, _ = self.plotBox()
+        kW = self.kWAt(ey)
         x = self.xOf(quarter + 0.5)
         self.create_line(x, top, x, bottom, fill=self.c["text"], dash=(2, 3), tags="cursor")
-        self.create_line(left, event.y, right, event.y, fill=self.c["text"], dash=(2, 3),
+        self.create_line(left, ey, right, ey, fill=self.c["text"], dash=(2, 3),
                          tags="cursor")
 
         lines = [f"{quarterToLabel(quarter)}–{quarterToLabel(quarter + 1)}   {kW:.1f} kW"]
@@ -470,8 +526,8 @@ class PowerChart(tk.Canvas):
             lines.append("Outside working hours")
         hovered = self.blockAt(quarter, kW)
         ghost = self.ghostAt(quarter, kW)
-        self.resetOutlines(hovered["id"] if hovered else None)
-        self.configure(cursor="hand2" if hovered or ghost else "crosshair")
+        self.setHovered(hovered["id"] if hovered else None)
+        self.setCursorShape("hand2" if hovered or ghost else "crosshair")
         if hovered:
             lines.append(f"#{hovered['id'] + 1} {hovered['machine']}  ·  "
                          f"{hovered['kW']:g} kW  ·  "
@@ -486,9 +542,10 @@ class PowerChart(tk.Canvas):
             lines.append(f"Proposed: #{ghost['id'] + 1} {ghost['machine']}  "
                          f"{ghost['fromStartTime']}–{ghost['fromEndTime']} → "
                          f"{ghost['startTime']}–{ghost['endTime']}")
-        self.drawTooltip(event.x, event.y, "\n".join(lines))
+        self.drawTooltip(ex, ey, "\n".join(lines))
 
-        if self.onHover:
+        if self.onHover and quarter != self._hoverQuarter:
+            self._hoverQuarter = quarter
             self.onHover(self.rows[quarter])
 
     def blockNotes(self, block: dict) -> list[str]:
@@ -574,10 +631,20 @@ class PowerChart(tk.Canvas):
         self.setSelected(block["id"])
 
     def handleDrag(self, event):
+        # Coalesced like handleMotion
         if self.drag is None:
             return
+        self._dragXY = (event.x, event.y)
+        if self._dragJob is None:
+            self._dragJob = self.after_idle(self.processDrag)
+
+    def processDrag(self):
+        self._dragJob = None
+        if self.drag is None or self._dragXY is None:
+            return
+        ex, ey = self._dragXY
         left, _, right, _ = self.plotBox()
-        quarter = self.quarterAt(min(max(event.x, left), right - 1))
+        quarter = self.quarterAt(min(max(ex, left), right - 1))
         wanted = quarter - self.drag["offset"]
         allowed = self.drag["allowed"]
         if allowed is None:
@@ -591,7 +658,7 @@ class PowerChart(tk.Canvas):
             self.drag["newStart"] = newStart
             self.redraw()
         self.delete("cursor")
-        self.configure(cursor="sb_h_double_arrow")
+        self.setCursorShape("sb_h_double_arrow")
         end = newStart + self.drag["duration"]
         text = f"Move to {quarterToLabel(newStart)}–{quarterToLabel(end)}"
         lastStart = QUARTERS_PER_DAY - self.drag["duration"]
@@ -602,11 +669,14 @@ class PowerChart(tk.Canvas):
         elif (newStart == self.drag["minStart"] > 0) or (
                 newStart == self.drag["maxStart"] < lastStart):
             text += "\nLimited by dependencies"
-        self.drawTooltip(event.x, event.y, text)
+        self.drawTooltip(ex, ey, text)
 
     def handleRelease(self, _event):
         if self.drag is None:
             return
+        if self._dragJob is not None:   # apply the last position first
+            self.after_cancel(self._dragJob)
+            self.processDrag()
         drag, self.drag = self.drag, None
         if drag["newStart"] != drag["start"] and self.onMove:
             self.onMove(drag["id"], drag["newStart"])
