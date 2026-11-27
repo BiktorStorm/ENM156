@@ -27,7 +27,8 @@ class company:
         self.machineList.remove(self.getMachine(name))
 
     def editMachine(self, name: str, newName: str | None = None,
-                    newKilowattage: int | None = None) -> machine.machine:
+                    newKilowattage: int | None = None,
+                    allowOutsideHours: bool | None = None) -> machine.machine:
         targetMachine = self.getMachine(name)
         if newName is not None and newName != name:
             if self.findMachine(newName) is not None:
@@ -35,6 +36,8 @@ class company:
             targetMachine.setName(newName)
         if newKilowattage is not None:
             targetMachine.setKW(newKilowattage)
+        if allowOutsideHours is not None:
+            targetMachine.setAllowOutsideHours(allowOutsideHours)
         return targetMachine
 
     def findMachine(self, name: str) -> machine.machine | None:
